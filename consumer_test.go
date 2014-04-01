@@ -91,6 +91,18 @@ var _ = Describe("Loggregator Consumer", func() {
 	})
 
 	Describe("Tail", func() {
+		var (
+			appGuid string
+			authToken string
+			incomingChan <-chan *logmessage.LogMessage
+			errChan <-chan error
+		)
+
+		perform := func() {
+			connection = consumer.NewConnection(endpoint, tlsSettings, nil)
+			incomingChan, errChan = connection.Tail(appGuid, authToken)
+		}
+
 		Context("when there is no TLS Config or proxy setting", func() {
 			BeforeEach(func() {
 				testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
@@ -98,12 +110,8 @@ var _ = Describe("Loggregator Consumer", func() {
 			})
 
 			Context("when the connection can be established", func() {
-				JustBeforeEach(func() {
-					connection = consumer.NewConnection(endpoint, nil, nil)
-				})
-
 				It("connects to the loggregator server", func() {
-					connection.Tail("", "")
+					perform()
 					Expect(fakeHandler.called).To(BeTrue())
 
 					close(fakeHandler.closeConnection)
@@ -111,7 +119,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 				It("receives messages on the incoming channel", func(done Done) {
 					fakeHandler.Messages = []*logmessage.LogMessage{createMessage("hello")}
-					incomingChan, _ := connection.Tail("", "")
+					perform()
 					message := <-incomingChan
 
 					Expect(message.Message).To(Equal([]byte("hello")))
@@ -121,7 +129,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				})
 
 				It("closes the channel after the server closes the connection", func(done Done) {
-					incomingChan, errChan := connection.Tail("", "")
+					perform()
 					fakeHandler.closeConnection <- true
 
 					Eventually(errChan).Should(BeClosed())
@@ -133,7 +141,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				It("sends a keepalive to the server", func(done Done) {
 					fakeHandler.messageReceived = make(chan bool)
 				    consumer.KeepAlive = 10 * time.Millisecond
-					connection.Tail("", "")
+					perform()
 
 					Eventually(fakeHandler.messageReceived).Should(Receive())
 					Eventually(fakeHandler.messageReceived).Should(Receive())
@@ -143,14 +151,16 @@ var _ = Describe("Loggregator Consumer", func() {
 				})
 
 				It("sends messages for a specific app", func() {
-					connection.Tail("app-guid", "")
+					appGuid = "app-guid"
+					perform()
 
 					Expect(fakeHandler.lastURL).To(ContainSubstring("/tail/?app=app-guid"))
 					close(fakeHandler.closeConnection)
 				})
 
 				It("sends an Authorization header with an access token", func() {
-					connection.Tail("", "auth-token")
+					authToken = "auth-token"
+					perform()
 
 					Expect(fakeHandler.authHeader).To(Equal("auth-token"))
 					close(fakeHandler.closeConnection)
@@ -159,7 +169,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				Context("when the message fails to parse", func() {
 					It("sends an error but continues to read messages", func(done Done) {
 						fakeHandler.Messages = []*logmessage.LogMessage{nil, createMessage("hello")}
-						incomingChan, errChan := connection.Tail("", "")
+						perform()
 
 						err := <-errChan
 						message := <-incomingChan
@@ -174,11 +184,12 @@ var _ = Describe("Loggregator Consumer", func() {
 			})
 
 			Context("when the connection cannot be established", func() {
-				It("has an error if the websocket connection cannot be made", func(done Done) {
+				BeforeEach(func() {
 					endpoint = "!!!bad-endpoint"
-					connection = consumer.NewConnection(endpoint, nil, nil)
-					_, errChan := connection.Tail("", "")
+				})
 
+				It("has an error if the websocket connection cannot be made", func(done Done) {
+					perform()
 					err := <-errChan
 
 					Expect(err).ToNot(BeNil())
@@ -193,15 +204,12 @@ var _ = Describe("Loggregator Consumer", func() {
 			BeforeEach(func() {
 				testServer = httptest.NewTLSServer(websocket.Handler(fakeHandler.handle))
 				endpoint = testServer.Listener.Addr().String()
-			})
 
-			JustBeforeEach(func() {
 				tlsSettings = &tls.Config{InsecureSkipVerify: true}
-				connection = consumer.NewConnection(endpoint, tlsSettings, nil)
 			})
 
 			It("connects using those settings", func() {
-				_, errChan := connection.Tail("", "")
+				perform()
 				close(fakeHandler.closeConnection)
 
 				_, ok := <-errChan

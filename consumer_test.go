@@ -1,7 +1,7 @@
 package loggregator_consumer_test
 
 import (
-	. "github.com/cloudfoundry/loggregator_consumer"
+	consumer "github.com/cloudfoundry/loggregator_consumer"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"net/http/httptest"
@@ -18,10 +18,26 @@ type FakeHandler struct {
 	closeConnection chan bool
 	postCloseMessage *logmessage.LogMessage
 	closedConnectionError error
+	messageReceived chan bool
 }
 
 func (fh *FakeHandler) handle(conn *websocket.Conn) {
 	fh.called = true
+
+	if fh.messageReceived != nil {
+		go func() {
+			for {
+				buffer := make([]byte, 1024)
+				_, err := conn.Read(buffer)
+
+				if err == nil {
+					fh.messageReceived <- true
+				} else {
+					break
+				}
+			}
+		}()
+	}
 
 	for _, protoMessage := range fh.Messages {
 		if protoMessage == nil {
@@ -59,7 +75,7 @@ func createMessage(message string) *logmessage.LogMessage{
 
 var _ = Describe("Loggregator Consumer", func() {
 	var (
-		connection LoggregatorConection
+		connection consumer.LoggregatorConnection
 		endpoint string
 		testServer *httptest.Server
 		fakeHandler FakeHandler
@@ -79,7 +95,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		Context("when there is no TLS Config or proxy setting", func() {
 			Context("when the connection can be established", func() {
 				JustBeforeEach(func() {
-					connection = NewConnection(endpoint, nil, nil)
+					connection = consumer.NewConnection(endpoint, nil, nil)
 				})
 
 				It("connects to the loggregator server", func() {
@@ -107,14 +123,26 @@ var _ = Describe("Loggregator Consumer", func() {
 					close(done)
 				})
 
+				It("sends a keepalive to the server", func(done Done) {
+					fakeHandler.closeConnection = make(chan bool)
+					fakeHandler.messageReceived = make(chan bool)
+				    consumer.KeepAlive = 10 * time.Millisecond
+					connection.Tail()
+
+					Eventually(fakeHandler.messageReceived).Should(Receive())
+					Eventually(fakeHandler.messageReceived).Should(Receive())
+
+					close(fakeHandler.closeConnection)
+					close(done)
+				})
+
 				Context("when the message fails to parse", func() {
 					It("sends an error but continues to read messages", func(done Done) {
 						fakeHandler.Messages = []*logmessage.LogMessage{nil, createMessage("hello")}
 						incomingChan, errChan := connection.Tail()
 
-						err := <- errChan
-						message := <- incomingChan
-
+						err := <-errChan
+						message := <-incomingChan
 
 						Expect(err).ToNot(BeNil())
 						Expect(message.Message).To(Equal([]byte("hello")))
@@ -127,7 +155,7 @@ var _ = Describe("Loggregator Consumer", func() {
 			Context("when the connection cannot be established", func() {
 				It("has an error if the websocket connection cannot be made", func(done Done) {
 					endpoint = "!!!bad-endpoint"
-					connection = NewConnection(endpoint, nil, nil)
+					connection = consumer.NewConnection(endpoint, nil, nil)
 					_, errChan := connection.Tail()
 
 					err := <-errChan
@@ -142,7 +170,7 @@ var _ = Describe("Loggregator Consumer", func() {
 	Describe("Close", func() {
 	    Context("when a connection is not open", func() {
 	        It("returns an error", func() {
-				connection = NewConnection(endpoint, nil, nil)
+				connection = consumer.NewConnection(endpoint, nil, nil)
 				err := connection.Close()
 
 				Expect(err.Error()).To(Equal("connection does not exist"))
@@ -152,7 +180,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		Context("when a connection is open", func() {
 		    It("closes any open channels", func(done Done) {
 				fakeHandler.closeConnection = make(chan bool)
-				connection = NewConnection(endpoint, nil, nil)
+				connection = consumer.NewConnection(endpoint, nil, nil)
 				incomingChan, errChan := connection.Tail()
 				connection.Close()
 

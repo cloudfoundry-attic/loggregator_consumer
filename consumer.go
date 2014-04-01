@@ -7,9 +7,14 @@ import (
 	"net/url"
 	"code.google.com/p/go.net/websocket"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
+	"time"
 )
 
-type LoggregatorConection interface {
+var (
+	KeepAlive = 25 * time.Second
+)
+
+type LoggregatorConnection interface {
 	Tail() (<- chan *logmessage.LogMessage, <-chan error)
 	Close() error
 }
@@ -19,7 +24,7 @@ type connection struct {
 	ws *websocket.Conn
 }
 
-func NewConnection(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConection {
+func NewConnection(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConnection {
 	return &connection{endpoint: endpoint}
 }
 
@@ -31,17 +36,17 @@ func (conn *connection) Tail() (<-chan *logmessage.LogMessage, <-chan error) {
 	if err == nil {
 		conn.ws, err = websocket.DialConfig(wsConfig)
 	}
-	if err != nil {
-		go func() {
+
+	go func() {
+		defer close(incomingChan)
+		defer close(errChan)
+
+		if err != nil {
 			errChan <- err
-			close(incomingChan)
-			close(errChan)
-		}()
-		return incomingChan, errChan
-	}
-
-
-	go conn.listenForMessages(incomingChan, errChan)
+		} else {
+			conn.listenForMessages(incomingChan, errChan)
+		}
+	}()
 
 	return incomingChan, errChan
 }
@@ -54,9 +59,19 @@ func (conn *connection) Close() error {
 	return conn.ws.Close()
 }
 
+func (conn *connection) sendKeepAlive() {
+	for {
+		err := websocket.Message.Send(conn.ws, "I'm alive!")
+		if err != nil {
+			return
+		}
+		time.Sleep(KeepAlive)
+	}
+}
+
 func (conn *connection) listenForMessages(msgChan chan<- *logmessage.LogMessage, errChan chan<- error) {
-	defer close(msgChan)
-	defer close(errChan)
+	defer conn.ws.Close()
+	go conn.sendKeepAlive()
 
 	for {
 		var data []byte

@@ -17,7 +17,6 @@ type FakeHandler struct {
 	Messages []*logmessage.LogMessage
 	called bool
 	closeConnection chan bool
-	postCloseMessage *logmessage.LogMessage
 	closedConnectionError error
 	messageReceived chan bool
 }
@@ -51,14 +50,8 @@ func (fh *FakeHandler) handle(conn *websocket.Conn) {
 		}
 	}
 
-	if fh.closeConnection != nil {
-		<-fh.closeConnection
-	}
-
-	if fh.postCloseMessage != nil {
-		message, _ := proto.Marshal(fh.postCloseMessage)
-		_, fh.closedConnectionError = conn.Write(message)
-	}
+	<-fh.closeConnection
+	conn.Close()
 }
 
 func createMessage(message string) *logmessage.LogMessage{
@@ -85,6 +78,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 	BeforeEach(func() {
 		fakeHandler = FakeHandler{}
+		fakeHandler.closeConnection = make(chan bool)
 	})
 
 	AfterEach(func() {
@@ -106,6 +100,8 @@ var _ = Describe("Loggregator Consumer", func() {
 				It("connects to the loggregator server", func() {
 					connection.Tail()
 					Expect(fakeHandler.called).To(BeTrue())
+
+					close(fakeHandler.closeConnection)
 				})
 
 				It("receives messages on the incoming channel", func(done Done) {
@@ -114,14 +110,18 @@ var _ = Describe("Loggregator Consumer", func() {
 					message := <-incomingChan
 
 					Expect(message.Message).To(Equal([]byte("hello")))
+
+					close(fakeHandler.closeConnection)
 					close(done)
 				})
 
 				It("closes the channel after the server closes the connection", func(done Done) {
 					incomingChan, errChan := connection.Tail()
+					fakeHandler.closeConnection <- true
 
-					Eventually(incomingChan).Should(BeClosed())
+
 					Eventually(errChan).Should(BeClosed())
+					Eventually(incomingChan).Should(BeClosed())
 
 					close(done)
 				})
@@ -150,6 +150,7 @@ var _ = Describe("Loggregator Consumer", func() {
 						Expect(err).ToNot(BeNil())
 						Expect(message.Message).To(Equal([]byte("hello")))
 
+						close(fakeHandler.closeConnection)
 						close(done)
 					})
 				})
@@ -164,6 +165,8 @@ var _ = Describe("Loggregator Consumer", func() {
 					err := <-errChan
 
 					Expect(err).ToNot(BeNil())
+
+					close(fakeHandler.closeConnection)
 					close(done)
 				})
 			})
@@ -182,6 +185,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 			It("connects using those settings", func() {
 				_, errChan := connection.Tail()
+				close(fakeHandler.closeConnection)
 
 				_, ok := <-errChan
 				Expect(ok).To(BeFalse())

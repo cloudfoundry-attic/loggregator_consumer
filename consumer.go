@@ -17,7 +17,7 @@ var (
 )
 
 type LoggregatorConnection interface {
-	Tail(appGuid string) (<- chan *logmessage.LogMessage, <-chan error)
+	Tail(appGuid string, authToken string) (<- chan *logmessage.LogMessage, <-chan error)
 	Close() error
 }
 
@@ -31,7 +31,7 @@ func NewConnection(endpoint string, tlsConfig *tls.Config, proxy func(*http.Requ
 	return &connection{endpoint: endpoint, tlsConfig: tlsConfig}
 }
 
-func (conn *connection) Tail(appGuid string) (<-chan *logmessage.LogMessage, <-chan error) {
+func (conn *connection) Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, <-chan error) {
 	incomingChan := make(chan *logmessage.LogMessage)
 	errChan := make(chan error)
 
@@ -45,6 +45,7 @@ func (conn *connection) Tail(appGuid string) (<-chan *logmessage.LogMessage, <-c
 	tailPath := fmt.Sprintf("/tail/?app=%s", appGuid)
 	wsConfig, err := websocket.NewConfig(protocol + conn.endpoint + tailPath, "http://localhost")
 	wsConfig.TlsConfig = conn.tlsConfig
+	wsConfig.Header.Add("Authorization", authToken)
 	if err == nil {
 		conn.ws, err = websocket.DialConfig(wsConfig)
 	}

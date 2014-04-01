@@ -6,41 +6,162 @@ import (
 	. "github.com/onsi/gomega"
 	"net/http/httptest"
 	"code.google.com/p/go.net/websocket"
+	"github.com/cloudfoundry/loggregatorlib/logmessage"
+	"code.google.com/p/gogoprotobuf/proto"
+	"time"
+//	"fmt"
 )
 
 type FakeHandler struct {
+	Messages []*logmessage.LogMessage
 	called bool
+	closeConnection chan bool
+	postCloseMessage *logmessage.LogMessage
+	closedConnectionError error
 }
 
 func (fh *FakeHandler) handle(conn *websocket.Conn) {
 	fh.called = true
+
+	for _, protoMessage := range fh.Messages {
+		if protoMessage == nil {
+			conn.Write([]byte{})
+		} else {
+			message, err := proto.Marshal(protoMessage)
+			Expect(err).ToNot(HaveOccurred())
+
+			conn.Write(message)
+		}
+	}
+
+	if fh.closeConnection != nil {
+		<-fh.closeConnection
+	}
+
+	if fh.postCloseMessage != nil {
+		message, _ := proto.Marshal(fh.postCloseMessage)
+		_, fh.closedConnectionError = conn.Write(message)
+	}
+}
+
+func createMessage(message string) *logmessage.LogMessage{
+	messageType := logmessage.LogMessage_OUT
+	sourceName := "DEA"
+	timestamp := time.Now().UnixNano()
+	return &logmessage.LogMessage{
+		Message:     []byte(message),
+		AppId:       proto.String("my-app-guid"),
+		MessageType: &messageType,
+		SourceName:  &sourceName,
+		Timestamp:   proto.Int64(timestamp),
+	}
 }
 
 var _ = Describe("Loggregator Consumer", func() {
+	var (
+		connection LoggregatorConection
+		endpoint string
+		testServer *httptest.Server
+		fakeHandler FakeHandler
+	)
+
+	BeforeEach(func() {
+		testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
+		endpoint = testServer.Listener.Addr().String()
+		fakeHandler = FakeHandler{}
+	})
+
+	AfterEach(func() {
+		testServer.Close()
+	})
+
 	Describe("Tail", func() {
 		Context("when there is no TLS Config or proxy setting", func() {
-			var (
-				connection LoggregatorConection
-				endpoint string
-				testServer *httptest.Server
-				fakeHandler FakeHandler
-			)
+			Context("when the connection can be established", func() {
+				JustBeforeEach(func() {
+					connection = NewConnection(endpoint, nil, nil)
+				})
 
-			BeforeEach(func() {
-				testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
-				endpoint = testServer.Listener.Addr().String()
-				fakeHandler = FakeHandler{}
+				It("connects to the loggregator server", func() {
+					connection.Tail()
+					Expect(fakeHandler.called).To(BeTrue())
+				})
+
+				It("receives messages on the incoming channel", func(done Done) {
+					fakeHandler.Messages = []*logmessage.LogMessage{createMessage("hello")}
+					incomingChan, _ := connection.Tail()
+					message := <-incomingChan
+
+					Expect(message.Message).To(Equal([]byte("hello")))
+					close(done)
+				})
+
+				It("closes the channel if there is an error reading from the server", func(done Done) {
+					incomingChan, errChan := connection.Tail()
+
+					Eventually(errChan).Should(Receive())
+
+					Eventually(incomingChan).Should(BeClosed())
+					Eventually(errChan).Should(BeClosed())
+
+					close(done)
+				})
+
+				Context("when the message fails to parse", func() {
+					It("sends an error but continues to read messages", func(done Done) {
+						fakeHandler.Messages = []*logmessage.LogMessage{nil, createMessage("hello")}
+						incomingChan, errChan := connection.Tail()
+
+						err := <- errChan
+						message := <- incomingChan
+
+
+						Expect(err).ToNot(BeNil())
+						Expect(message.Message).To(Equal([]byte("hello")))
+
+						close(done)
+					})
+				})
+			})
+
+			Context("when the connection cannot be established", func() {
+				It("has an error if the websocket connection cannot be made", func(done Done) {
+					endpoint = "!!!bad-endpoint"
+					connection = NewConnection(endpoint, nil, nil)
+					_, errChan := connection.Tail()
+
+					err := <-errChan
+
+					Expect(err).ToNot(BeNil())
+					close(done)
+				})
+			})
+		})
+	})
+
+	Describe("Close", func() {
+	    Context("when a connection is not open", func() {
+	        It("returns an error", func() {
 				connection = NewConnection(endpoint, nil, nil)
-			})
+				err := connection.Close()
 
-			AfterEach(func() {
-				testServer.Close()
-			})
+				Expect(err.Error()).To(Equal("connection does not exist"))
+	        })
+	    })
 
-		    It("connects to the loggregator server", func() {
-				connection.Tail()
-				Expect(fakeHandler.called).To(BeTrue())
-		    })
+		Context("when a connection is open", func() {
+		    It("closes any open channels", func(done Done) {
+				fakeHandler.closeConnection = make(chan bool)
+				connection = NewConnection(endpoint, nil, nil)
+				incomingChan, errChan := connection.Tail()
+				connection.Close()
+
+				Eventually(errChan).Should(BeClosed())
+				Eventually(incomingChan).Should(BeClosed())
+
+				close(fakeHandler.closeConnection)
+				close(done)
+			})
 		})
 	})
 })

@@ -10,6 +10,7 @@ import (
 	"code.google.com/p/gogoprotobuf/proto"
 	"time"
 //	"fmt"
+	"crypto/tls"
 )
 
 type FakeHandler struct {
@@ -79,11 +80,10 @@ var _ = Describe("Loggregator Consumer", func() {
 		endpoint string
 		testServer *httptest.Server
 		fakeHandler FakeHandler
+		tlsSettings *tls.Config
 	)
 
 	BeforeEach(func() {
-		testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
-		endpoint = testServer.Listener.Addr().String()
 		fakeHandler = FakeHandler{}
 	})
 
@@ -93,6 +93,11 @@ var _ = Describe("Loggregator Consumer", func() {
 
 	Describe("Tail", func() {
 		Context("when there is no TLS Config or proxy setting", func() {
+			BeforeEach(func() {
+				testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
+				endpoint = testServer.Listener.Addr().String()
+			})
+
 			Context("when the connection can be established", func() {
 				JustBeforeEach(func() {
 					connection = consumer.NewConnection(endpoint, nil, nil)
@@ -112,10 +117,8 @@ var _ = Describe("Loggregator Consumer", func() {
 					close(done)
 				})
 
-				It("closes the channel if there is an error reading from the server", func(done Done) {
+				It("closes the channel after the server closes the connection", func(done Done) {
 					incomingChan, errChan := connection.Tail()
-
-					Eventually(errChan).Should(Receive())
 
 					Eventually(incomingChan).Should(BeClosed())
 					Eventually(errChan).Should(BeClosed())
@@ -165,9 +168,33 @@ var _ = Describe("Loggregator Consumer", func() {
 				})
 			})
 		})
+
+		Context("when SSL settings are passed in", func() {
+			BeforeEach(func() {
+				testServer = httptest.NewTLSServer(websocket.Handler(fakeHandler.handle))
+				endpoint = testServer.Listener.Addr().String()
+			})
+
+			JustBeforeEach(func() {
+				tlsSettings = &tls.Config{InsecureSkipVerify: true}
+				connection = consumer.NewConnection(endpoint, tlsSettings, nil)
+			})
+
+			It("connects using those settings", func() {
+				_, errChan := connection.Tail()
+
+				_, ok := <-errChan
+				Expect(ok).To(BeFalse())
+			})
+		})
 	})
 
 	Describe("Close", func() {
+		BeforeEach(func() {
+			testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
+			endpoint = testServer.Listener.Addr().String()
+		})
+
 	    Context("when a connection is not open", func() {
 	        It("returns an error", func() {
 				connection = consumer.NewConnection(endpoint, nil, nil)

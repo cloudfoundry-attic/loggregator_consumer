@@ -8,6 +8,7 @@ import (
 	"code.google.com/p/go.net/websocket"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
 	"time"
+	"io"
 )
 
 var (
@@ -21,18 +22,27 @@ type LoggregatorConnection interface {
 
 type connection struct {
 	endpoint string
+	tlsConfig *tls.Config
 	ws *websocket.Conn
 }
 
 func NewConnection(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConnection {
-	return &connection{endpoint: endpoint}
+	return &connection{endpoint: endpoint, tlsConfig: tlsConfig}
 }
 
 func (conn *connection) Tail() (<-chan *logmessage.LogMessage, <-chan error) {
 	incomingChan := make(chan *logmessage.LogMessage)
 	errChan := make(chan error)
 
-	wsConfig, err := websocket.NewConfig("ws://" + conn.endpoint, "http://localhost")
+	var protocol string
+	if conn.tlsConfig == nil {
+		protocol = "ws://"
+	} else {
+		protocol = "wss://"
+	}
+
+	wsConfig, err := websocket.NewConfig(protocol + conn.endpoint, "http://localhost")
+	wsConfig.TlsConfig = conn.tlsConfig
 	if err == nil {
 		conn.ws, err = websocket.DialConfig(wsConfig)
 	}
@@ -77,7 +87,10 @@ func (conn *connection) listenForMessages(msgChan chan<- *logmessage.LogMessage,
 		var data []byte
 		err := websocket.Message.Receive(conn.ws, &data)
 		if err != nil {
-			errChan <- err
+			if err != io.EOF {
+				errChan <- err
+			}
+
 			break
 		}
 

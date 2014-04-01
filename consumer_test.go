@@ -111,20 +111,20 @@ var _ = Describe("Loggregator Consumer", func() {
 
 			Context("when the connection can be established", func() {
 				It("connects to the loggregator server", func() {
+					defer close(fakeHandler.closeConnection)
 					perform()
-					Expect(fakeHandler.called).To(BeTrue())
 
-					close(fakeHandler.closeConnection)
+					Expect(fakeHandler.called).To(BeTrue())
 				})
 
 				It("receives messages on the incoming channel", func(done Done) {
+					defer close(fakeHandler.closeConnection)
 					fakeHandler.Messages = []*logmessage.LogMessage{createMessage("hello")}
 					perform()
 					message := <-incomingChan
 
 					Expect(message.Message).To(Equal([]byte("hello")))
 
-					close(fakeHandler.closeConnection)
 					close(done)
 				})
 
@@ -139,6 +139,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				})
 
 				It("sends a keepalive to the server", func(done Done) {
+					defer close(fakeHandler.closeConnection)
 					fakeHandler.messageReceived = make(chan bool)
 				    consumer.KeepAlive = 10 * time.Millisecond
 					perform()
@@ -146,28 +147,28 @@ var _ = Describe("Loggregator Consumer", func() {
 					Eventually(fakeHandler.messageReceived).Should(Receive())
 					Eventually(fakeHandler.messageReceived).Should(Receive())
 
-					close(fakeHandler.closeConnection)
 					close(done)
 				})
 
 				It("sends messages for a specific app", func() {
+					defer close(fakeHandler.closeConnection)
 					appGuid = "app-guid"
 					perform()
 
 					Expect(fakeHandler.lastURL).To(ContainSubstring("/tail/?app=app-guid"))
-					close(fakeHandler.closeConnection)
 				})
 
 				It("sends an Authorization header with an access token", func() {
+					defer close(fakeHandler.closeConnection)
 					authToken = "auth-token"
 					perform()
 
 					Expect(fakeHandler.authHeader).To(Equal("auth-token"))
-					close(fakeHandler.closeConnection)
 				})
 
 				Context("when the message fails to parse", func() {
 					It("sends an error but continues to read messages", func(done Done) {
+						defer close(fakeHandler.closeConnection)
 						fakeHandler.Messages = []*logmessage.LogMessage{nil, createMessage("hello")}
 						perform()
 
@@ -177,7 +178,6 @@ var _ = Describe("Loggregator Consumer", func() {
 						Expect(err).ToNot(BeNil())
 						Expect(message.Message).To(Equal([]byte("hello")))
 
-						close(fakeHandler.closeConnection)
 						close(done)
 					})
 				})
@@ -189,12 +189,12 @@ var _ = Describe("Loggregator Consumer", func() {
 				})
 
 				It("has an error if the websocket connection cannot be made", func(done Done) {
+					defer close(fakeHandler.closeConnection)
 					perform()
 					err := <-errChan
 
 					Expect(err).ToNot(BeNil())
 
-					close(fakeHandler.closeConnection)
 					close(done)
 				})
 			})
@@ -235,7 +235,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		Context("when a connection is open", func() {
 		    It("closes any open channels", func(done Done) {
-				fakeHandler.closeConnection = make(chan bool)
+				defer close(fakeHandler.closeConnection)
 				connection = consumer.NewConnection(endpoint, nil, nil)
 				incomingChan, errChan := connection.Tail("", "")
 				connection.Close()
@@ -243,7 +243,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				Eventually(errChan).Should(BeClosed())
 				Eventually(incomingChan).Should(BeClosed())
 
-				close(fakeHandler.closeConnection)
+
 				close(done)
 			})
 		})

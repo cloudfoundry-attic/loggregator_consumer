@@ -58,10 +58,14 @@ func (fh *FakeHandler) handle(conn *websocket.Conn) {
 	conn.Close()
 }
 
-func createMessage(message string) *logmessage.LogMessage {
+func createMessage(message string, timestamp int64) *logmessage.LogMessage {
 	messageType := logmessage.LogMessage_OUT
 	sourceName := "DEA"
-	timestamp := time.Now().UnixNano()
+
+	if timestamp == 0 {
+		timestamp = time.Now().UnixNano()
+	}
+
 	return &logmessage.LogMessage{
 		Message:     []byte(message),
 		AppId:       proto.String("my-app-guid"),
@@ -118,7 +122,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 				It("receives messages on the incoming channel", func(done Done) {
 					defer close(fakeHandler.closeConnection)
-					fakeHandler.Messages = []*logmessage.LogMessage{createMessage("hello")}
+					fakeHandler.Messages = []*logmessage.LogMessage{createMessage("hello", 0)}
 					perform()
 					message := <-incomingChan
 
@@ -168,7 +172,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				Context("when the message fails to parse", func() {
 					It("sends an error but continues to read messages", func(done Done) {
 						defer close(fakeHandler.closeConnection)
-						fakeHandler.Messages = []*logmessage.LogMessage{nil, createMessage("hello")}
+						fakeHandler.Messages = []*logmessage.LogMessage{nil, createMessage("hello", 0)}
 						perform()
 
 						err := <-errChan
@@ -288,8 +292,8 @@ var _ = Describe("Loggregator Consumer", func() {
 
 			It("returns messages from the server", func() {
 				fakeHandler.Messages = []*logmessage.LogMessage{
-					createMessage("test-message-0"),
-					createMessage("test-message-1"),
+					createMessage("test-message-0", 0),
+					createMessage("test-message-1", 0),
 				}
 				perform()
 
@@ -304,6 +308,31 @@ var _ = Describe("Loggregator Consumer", func() {
 
 				Expect(fakeHandler.lastURL).To(ContainSubstring("/dump/?app=app-guid"))
 			})
+		})
+	})
+
+	Describe("SortRecent", func() {
+		var messages []*logmessage.LogMessage
+
+		BeforeEach(func() {
+			messages = []*logmessage.LogMessage{createMessage("hello", 2), createMessage("konnichiha", 1)}
+		})
+
+		It("sorts messages", func() {
+			sortedMessages := consumer.SortRecent(messages)
+
+			Expect(*sortedMessages[0].Timestamp).To(Equal(int64(1)))
+			Expect(*sortedMessages[1].Timestamp).To(Equal(int64(2)))
+		})
+
+		It("sorts using a stable algorithm", func() {
+			messages = append(messages, createMessage("guten tag", 1))
+
+			sortedMessages := consumer.SortRecent(messages)
+
+			Expect(sortedMessages[0].Message).To(Equal([]byte("konnichiha")))
+			Expect(sortedMessages[1].Message).To(Equal([]byte("guten tag")))
+			Expect(sortedMessages[2].Message).To(Equal([]byte("hello")))
 		})
 	})
 })

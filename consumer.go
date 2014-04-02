@@ -17,9 +17,9 @@ var (
 	KeepAlive = 25 * time.Second
 )
 
-/* LoggregatorConnection represents the actions that can be performed against a loggregator server.
+/* LoggregatorConsumer represents the actions that can be performed against a loggregator server.
  */
-type LoggregatorConnection interface {
+type LoggregatorConsumer interface {
 
 	//	Tail listens indefinitely for log messages. It returns two channels; the first is populated
 	//	with log messages, while the second contains errors (e.g. from parsing messages). It returns
@@ -40,16 +40,16 @@ type LoggregatorConnection interface {
 	Close() error
 }
 
-type connection struct {
+type consumer struct {
 	endpoint  string
 	tlsConfig *tls.Config
 	ws        *websocket.Conn
 }
 
-/* NewConnection creates a new connection to a loggregator endpoint.
+/* NewConsumer creates a new consumer to a loggregator endpoint.
  */
-func NewConnection(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConnection {
-	return &connection{endpoint: endpoint, tlsConfig: tlsConfig}
+func NewConsumer(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConsumer {
+	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig}
 }
 
 /*
@@ -61,7 +61,7 @@ Messages are presented in the order received from the loggregator server. Chrono
 is not guaranteed. It is the responsibility of the consumer of these channels to provide any desired sorting
 mechanism.
 */
-func (conn *connection) Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, <-chan error) {
+func (conn *consumer) Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, <-chan error) {
 	incomingChan := make(chan *logmessage.LogMessage)
 	errChan := make(chan error)
 
@@ -90,7 +90,7 @@ guarantee any order of the messages; they are in the order returned by loggregat
 
 The SortRecent method is provided to sort the data returned by this method.
 */
-func (conn *connection) Recent(appGuid string, authToken string) ([]*logmessage.LogMessage, error) {
+func (conn *consumer) Recent(appGuid string, authToken string) ([]*logmessage.LogMessage, error) {
 	var err error
 
 	dumpPath := fmt.Sprintf("/dump/?app=%s", appGuid)
@@ -138,7 +138,7 @@ drainLoop:
 
 /* Close terminates the websocket connection to loggregator.
  */
-func (conn *connection) Close() error {
+func (conn *consumer) Close() error {
 	if conn.ws == nil {
 		return errors.New("connection does not exist")
 	}
@@ -171,7 +171,7 @@ func (lms logMessageSlice) Swap(i, j int) {
 	lms[i], lms[j] = lms[j], lms[i]
 }
 
-func (conn *connection) sendKeepAlive() {
+func (conn *consumer) sendKeepAlive() {
 	for {
 		err := websocket.Message.Send(conn.ws, "I'm alive!")
 		if err != nil {
@@ -181,7 +181,7 @@ func (conn *connection) sendKeepAlive() {
 	}
 }
 
-func (conn *connection) listenForMessages(msgChan chan<- *logmessage.LogMessage, errChan chan<- error) {
+func (conn *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, errChan chan<- error) {
 	defer conn.ws.Close()
 
 	for {
@@ -206,7 +206,7 @@ func (conn *connection) listenForMessages(msgChan chan<- *logmessage.LogMessage,
 	}
 }
 
-func (conn *connection) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
+func (conn *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
 	var protocol string
 	if conn.tlsConfig == nil {
 		protocol = "ws://"

@@ -77,7 +77,7 @@ func createMessage(message string, timestamp int64) *logmessage.LogMessage {
 
 var _ = Describe("Loggregator Consumer", func() {
 	var (
-		connection  consumer.LoggregatorConnection
+		connection  consumer.LoggregatorConsumer
 		endpoint    string
 		testServer  *httptest.Server
 		fakeHandler FakeHandler
@@ -102,7 +102,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		)
 
 		perform := func() {
-			connection = consumer.NewConnection(endpoint, tlsSettings, nil)
+			connection = consumer.NewConsumer(endpoint, tlsSettings, nil)
 			incomingChan, errChan = connection.Tail(appGuid, authToken)
 		}
 
@@ -229,7 +229,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		Context("when a connection is not open", func() {
 			It("returns an error", func() {
-				connection = consumer.NewConnection(endpoint, nil, nil)
+				connection = consumer.NewConsumer(endpoint, nil, nil)
 				err := connection.Close()
 
 				Expect(err.Error()).To(Equal("connection does not exist"))
@@ -238,7 +238,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		Context("when a connection is open", func() {
 			It("closes any open channels", func(done Done) {
-				connection = consumer.NewConnection(endpoint, nil, nil)
+				connection = consumer.NewConsumer(endpoint, nil, nil)
 				incomingChan, errChan := connection.Tail("", "")
 				close(fakeHandler.closeConnection)
 
@@ -263,7 +263,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		)
 
 		perform := func() {
-			connection = consumer.NewConnection(endpoint, nil, nil)
+			connection = consumer.NewConsumer(endpoint, nil, nil)
 			close(fakeHandler.closeConnection)
 			logMessages, recentError = connection.Recent(appGuid, authToken)
 		}

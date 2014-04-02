@@ -52,7 +52,7 @@ type consumer struct {
 
 /* NewConsumer creates a new consumer to a loggregator endpoint.
  */
-func NewConsumer(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConsumer {
+func New(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConsumer {
 	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig}
 }
 

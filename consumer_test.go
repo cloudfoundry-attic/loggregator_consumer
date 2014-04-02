@@ -108,7 +108,7 @@ var _ = Describe("Loggregator Consumer", func() {
 			called := false
 			cb := func() { called = true }
 
-			connection = consumer.NewConsumer(endpoint, tlsSettings, nil)
+			connection = consumer.New(endpoint, tlsSettings, nil)
 			connection.SetOnConnectCallback(cb)
 			connection.Tail(appGuid, authToken)
 
@@ -122,7 +122,7 @@ var _ = Describe("Loggregator Consumer", func() {
 			called := false
 			cb := func() { called = true }
 
-			connection = consumer.NewConsumer(endpoint, tlsSettings, nil)
+			connection = consumer.New(endpoint, tlsSettings, nil)
 			connection.SetOnConnectCallback(cb)
 			connection.Tail(appGuid, authToken)
 
@@ -133,7 +133,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 	Describe("Tail", func() {
 		perform := func() {
-			connection = consumer.NewConsumer(endpoint, tlsSettings, nil)
+			connection = consumer.New(endpoint, tlsSettings, nil)
 			incomingChan, errChan = connection.Tail(appGuid, authToken)
 		}
 
@@ -260,7 +260,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		Context("when a connection is not open", func() {
 			It("returns an error", func() {
-				connection = consumer.NewConsumer(endpoint, nil, nil)
+				connection = consumer.New(endpoint, nil, nil)
 				err := connection.Close()
 
 				Expect(err.Error()).To(Equal("connection does not exist"))
@@ -269,7 +269,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		Context("when a connection is open", func() {
 			It("closes any open channels", func(done Done) {
-				connection = consumer.NewConsumer(endpoint, nil, nil)
+				connection = consumer.New(endpoint, nil, nil)
 				incomingChan, errChan := connection.Tail("", "")
 				close(fakeHandler.closeConnection)
 
@@ -294,7 +294,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		)
 
 		perform := func() {
-			connection = consumer.NewConsumer(endpoint, nil, nil)
+			connection = consumer.New(endpoint, nil, nil)
 			close(fakeHandler.closeConnection)
 			logMessages, recentError = connection.Recent(appGuid, authToken)
 		}

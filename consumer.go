@@ -38,12 +38,16 @@ type LoggregatorConsumer interface {
 
 	// Close terminates the websocket connection to loggregator.
 	Close() error
+
+	// SetOnConnectCallback sets a callback function to be called with the websocket connection is established.
+	SetOnConnectCallback(func())
 }
 
 type consumer struct {
 	endpoint  string
 	tlsConfig *tls.Config
 	ws        *websocket.Conn
+	callback  func()
 }
 
 /* NewConsumer creates a new consumer to a loggregator endpoint.
@@ -146,6 +150,10 @@ func (conn *consumer) Close() error {
 	return conn.ws.Close()
 }
 
+func (conn *consumer) SetOnConnectCallback(cb func()) {
+	conn.callback = cb
+}
+
 /*
 SortRecent sorts a slice of LogMessages by timestamp. The sort is stable, so
 messages with the same timestamp are sorted in the order that they are received.
@@ -221,5 +229,10 @@ func (conn *consumer) establishWebsocketConnection(path string, authToken string
 
 	wsConfig.TlsConfig = conn.tlsConfig
 	wsConfig.Header.Add("Authorization", authToken)
-	return websocket.DialConfig(wsConfig)
+	connection, err := websocket.DialConfig(wsConfig)
+	if err == nil && conn.callback != nil {
+		conn.callback()
+	}
+
+	return connection, err
 }

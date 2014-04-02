@@ -82,6 +82,11 @@ var _ = Describe("Loggregator Consumer", func() {
 		testServer  *httptest.Server
 		fakeHandler FakeHandler
 		tlsSettings *tls.Config
+
+		appGuid      string
+		authToken    string
+		incomingChan <-chan *logmessage.LogMessage
+		errChan      <-chan error
 	)
 
 	BeforeEach(func() {
@@ -93,14 +98,40 @@ var _ = Describe("Loggregator Consumer", func() {
 		testServer.Close()
 	})
 
-	Describe("Tail", func() {
-		var (
-			appGuid      string
-			authToken    string
-			incomingChan <-chan *logmessage.LogMessage
-			errChan      <-chan error
-		)
+	Describe("SetOnConnectCallback", func() {
+		BeforeEach(func() {
+			testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
+			endpoint = testServer.Listener.Addr().String()
+		})
 
+		It("sets a callback and calls it when connecting", func() {
+			called := false
+			cb := func() { called = true }
+
+			connection = consumer.NewConsumer(endpoint, tlsSettings, nil)
+			connection.SetOnConnectCallback(cb)
+			connection.Tail(appGuid, authToken)
+
+			Eventually(func() bool { return called }).Should(BeTrue())
+			close(fakeHandler.closeConnection)
+		})
+
+		It("does not call the callback if the connection fails", func() {
+			endpoint = "!!!bad-endpoint"
+
+			called := false
+			cb := func() { called = true }
+
+			connection = consumer.NewConsumer(endpoint, tlsSettings, nil)
+			connection.SetOnConnectCallback(cb)
+			connection.Tail(appGuid, authToken)
+
+			Consistently(func() bool { return called }).Should(BeFalse())
+			close(fakeHandler.closeConnection)
+		})
+	})
+
+	Describe("Tail", func() {
 		perform := func() {
 			connection = consumer.NewConsumer(endpoint, tlsSettings, nil)
 			incomingChan, errChan = connection.Tail(appGuid, authToken)

@@ -1,15 +1,15 @@
 package loggregator_consumer
 
 import (
-	"errors"
+	"code.google.com/p/go.net/websocket"
 	"crypto/tls"
+	"errors"
+	"fmt"
+	"github.com/cloudfoundry/loggregatorlib/logmessage"
+	"io"
 	"net/http"
 	"net/url"
-	"code.google.com/p/go.net/websocket"
-	"github.com/cloudfoundry/loggregatorlib/logmessage"
 	"time"
-	"io"
-	"fmt"
 )
 
 var (
@@ -17,14 +17,15 @@ var (
 )
 
 type LoggregatorConnection interface {
-	Tail(appGuid string, authToken string) (<- chan *logmessage.LogMessage, <-chan error)
+	Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, <-chan error)
+	Recent(appGuid string, authToken string) ([]*logmessage.LogMessage, error)
 	Close() error
 }
 
 type connection struct {
-	endpoint string
+	endpoint  string
 	tlsConfig *tls.Config
-	ws *websocket.Conn
+	ws        *websocket.Conn
 }
 
 func NewConnection(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConnection {
@@ -35,33 +36,69 @@ func (conn *connection) Tail(appGuid string, authToken string) (<-chan *logmessa
 	incomingChan := make(chan *logmessage.LogMessage)
 	errChan := make(chan error)
 
-	var protocol string
-	if conn.tlsConfig == nil {
-		protocol = "ws://"
-	} else {
-		protocol = "wss://"
-	}
-
-	tailPath := fmt.Sprintf("/tail/?app=%s", appGuid)
-	wsConfig, err := websocket.NewConfig(protocol + conn.endpoint + tailPath, "http://localhost")
-	wsConfig.TlsConfig = conn.tlsConfig
-	wsConfig.Header.Add("Authorization", authToken)
-	if err == nil {
-		conn.ws, err = websocket.DialConfig(wsConfig)
-	}
-
 	go func() {
 		defer close(incomingChan)
 		defer close(errChan)
 
+		var err error
+
+		tailPath := fmt.Sprintf("/tail/?app=%s", appGuid)
+		conn.ws, err = conn.establishWebsocketConnection(tailPath, authToken)
 		if err != nil {
 			errChan <- err
 		} else {
+			go conn.sendKeepAlive()
 			conn.listenForMessages(incomingChan, errChan)
 		}
 	}()
 
 	return incomingChan, errChan
+}
+
+func (conn *connection) Recent(appGuid string, authToken string) ([]*logmessage.LogMessage, error) {
+	var err error
+
+	dumpPath := fmt.Sprintf("/dump/?app=%s", appGuid)
+	conn.ws, err = conn.establishWebsocketConnection(dumpPath, authToken)
+
+	if err != nil {
+		return nil, err
+	}
+
+	messages := make([]*logmessage.LogMessage, 0)
+	messageChan := make(chan *logmessage.LogMessage)
+	errorChan := make(chan error)
+
+	go func() {
+		conn.listenForMessages(messageChan, errorChan)
+		close(messageChan)
+		close(errorChan)
+	}()
+
+	var firstError error
+
+drainLoop:
+	for {
+		select {
+		case err, ok := <-errorChan:
+			if !ok {
+				break drainLoop
+			}
+
+			if firstError == nil {
+				firstError = err
+			}
+
+		case msg, ok := <-messageChan:
+			if !ok {
+				break drainLoop
+			}
+
+			messages = append(messages, msg)
+		}
+	}
+
+	return messages, firstError
 }
 
 func (conn *connection) Close() error {
@@ -84,10 +121,10 @@ func (conn *connection) sendKeepAlive() {
 
 func (conn *connection) listenForMessages(msgChan chan<- *logmessage.LogMessage, errChan chan<- error) {
 	defer conn.ws.Close()
-	go conn.sendKeepAlive()
 
 	for {
 		var data []byte
+
 		err := websocket.Message.Receive(conn.ws, &data)
 		if err != nil {
 			if err != io.EOF {
@@ -102,6 +139,25 @@ func (conn *connection) listenForMessages(msgChan chan<- *logmessage.LogMessage,
 			errChan <- msgErr
 			continue
 		}
+
 		msgChan <- msg.GetLogMessage()
 	}
+}
+
+func (conn *connection) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
+	var protocol string
+	if conn.tlsConfig == nil {
+		protocol = "ws://"
+	} else {
+		protocol = "wss://"
+	}
+
+	wsConfig, err := websocket.NewConfig(protocol+conn.endpoint+path, "http://localhost")
+	if err != nil {
+		return nil, err
+	}
+
+	wsConfig.TlsConfig = conn.tlsConfig
+	wsConfig.Header.Add("Authorization", authToken)
+	return websocket.DialConfig(wsConfig)
 }

@@ -1,26 +1,25 @@
 package loggregator_consumer_test
 
 import (
+	"code.google.com/p/go.net/websocket"
+	"code.google.com/p/gogoprotobuf/proto"
+	"crypto/tls"
 	consumer "github.com/cloudfoundry/loggregator_consumer"
+	"github.com/cloudfoundry/loggregatorlib/logmessage"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"net/http/httptest"
-	"code.google.com/p/go.net/websocket"
-	"github.com/cloudfoundry/loggregatorlib/logmessage"
-	"code.google.com/p/gogoprotobuf/proto"
 	"time"
-//	"fmt"
-	"crypto/tls"
 )
 
 type FakeHandler struct {
-	Messages []*logmessage.LogMessage
-	called bool
-	closeConnection chan bool
+	Messages              []*logmessage.LogMessage
+	called                bool
+	closeConnection       chan bool
 	closedConnectionError error
-	messageReceived chan bool
-	lastURL string
-	authHeader string
+	messageReceived       chan bool
+	lastURL               string
+	authHeader            string
 }
 
 func (fh *FakeHandler) handle(conn *websocket.Conn) {
@@ -59,7 +58,7 @@ func (fh *FakeHandler) handle(conn *websocket.Conn) {
 	conn.Close()
 }
 
-func createMessage(message string) *logmessage.LogMessage{
+func createMessage(message string) *logmessage.LogMessage {
 	messageType := logmessage.LogMessage_OUT
 	sourceName := "DEA"
 	timestamp := time.Now().UnixNano()
@@ -74,9 +73,9 @@ func createMessage(message string) *logmessage.LogMessage{
 
 var _ = Describe("Loggregator Consumer", func() {
 	var (
-		connection consumer.LoggregatorConnection
-		endpoint string
-		testServer *httptest.Server
+		connection  consumer.LoggregatorConnection
+		endpoint    string
+		testServer  *httptest.Server
 		fakeHandler FakeHandler
 		tlsSettings *tls.Config
 	)
@@ -92,10 +91,10 @@ var _ = Describe("Loggregator Consumer", func() {
 
 	Describe("Tail", func() {
 		var (
-			appGuid string
-			authToken string
+			appGuid      string
+			authToken    string
 			incomingChan <-chan *logmessage.LogMessage
-			errChan <-chan error
+			errChan      <-chan error
 		)
 
 		perform := func() {
@@ -114,7 +113,7 @@ var _ = Describe("Loggregator Consumer", func() {
 					defer close(fakeHandler.closeConnection)
 					perform()
 
-					Expect(fakeHandler.called).To(BeTrue())
+					Eventually(func() bool { return fakeHandler.called }).Should(BeTrue())
 				})
 
 				It("receives messages on the incoming channel", func(done Done) {
@@ -141,7 +140,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				It("sends a keepalive to the server", func(done Done) {
 					defer close(fakeHandler.closeConnection)
 					fakeHandler.messageReceived = make(chan bool)
-				    consumer.KeepAlive = 10 * time.Millisecond
+					consumer.KeepAlive = 10 * time.Millisecond
 					perform()
 
 					Eventually(fakeHandler.messageReceived).Should(Receive())
@@ -155,7 +154,7 @@ var _ = Describe("Loggregator Consumer", func() {
 					appGuid = "app-guid"
 					perform()
 
-					Expect(fakeHandler.lastURL).To(ContainSubstring("/tail/?app=app-guid"))
+					Eventually(func() string { return fakeHandler.lastURL }).Should(ContainSubstring("/tail/?app=app-guid"))
 				})
 
 				It("sends an Authorization header with an access token", func() {
@@ -163,7 +162,7 @@ var _ = Describe("Loggregator Consumer", func() {
 					authToken = "auth-token"
 					perform()
 
-					Expect(fakeHandler.authHeader).To(Equal("auth-token"))
+					Eventually(func() string { return fakeHandler.authHeader }).Should(Equal("auth-token"))
 				})
 
 				Context("when the message fails to parse", func() {
@@ -224,27 +223,86 @@ var _ = Describe("Loggregator Consumer", func() {
 			endpoint = testServer.Listener.Addr().String()
 		})
 
-	    Context("when a connection is not open", func() {
-	        It("returns an error", func() {
+		Context("when a connection is not open", func() {
+			It("returns an error", func() {
 				connection = consumer.NewConnection(endpoint, nil, nil)
 				err := connection.Close()
 
 				Expect(err.Error()).To(Equal("connection does not exist"))
-	        })
-	    })
+			})
+		})
 
 		Context("when a connection is open", func() {
-		    It("closes any open channels", func(done Done) {
-				defer close(fakeHandler.closeConnection)
+			It("closes any open channels", func(done Done) {
 				connection = consumer.NewConnection(endpoint, nil, nil)
 				incomingChan, errChan := connection.Tail("", "")
+				close(fakeHandler.closeConnection)
+
+				Eventually(func() bool { return fakeHandler.called }).Should(BeTrue())
+
 				connection.Close()
 
 				Eventually(errChan).Should(BeClosed())
 				Eventually(incomingChan).Should(BeClosed())
 
-
 				close(done)
+			})
+		})
+	})
+
+	Describe("Recent", func() {
+		var (
+			appGuid     string
+			authToken   string
+			logMessages []*logmessage.LogMessage
+			recentError error
+		)
+
+		perform := func() {
+			connection = consumer.NewConnection(endpoint, nil, nil)
+			close(fakeHandler.closeConnection)
+			logMessages, recentError = connection.Recent(appGuid, authToken)
+		}
+
+		BeforeEach(func() {
+			testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
+			endpoint = testServer.Listener.Addr().String()
+		})
+
+		Context("when the connection cannot be established", func() {
+			It("returns an error", func() {
+				endpoint = "invalid-endpoint"
+				perform()
+
+				Expect(recentError).ToNot(BeNil())
+			})
+
+		})
+
+		Context("when the connection can be established", func() {
+			It("connects to the loggregator server", func() {
+				perform()
+
+				Expect(fakeHandler.called).To(BeTrue())
+			})
+
+			It("returns messages from the server", func() {
+				fakeHandler.Messages = []*logmessage.LogMessage{
+					createMessage("test-message-0"),
+					createMessage("test-message-1"),
+				}
+				perform()
+
+				Expect(logMessages).To(HaveLen(2))
+				Expect(logMessages[0].Message).To(Equal([]byte("test-message-0")))
+				Expect(logMessages[1].Message).To(Equal([]byte("test-message-1")))
+			})
+
+			It("calls the right path on the loggregator endpoint", func() {
+				appGuid = "app-guid"
+				perform()
+
+				Expect(fakeHandler.lastURL).To(ContainSubstring("/dump/?app=app-guid"))
 			})
 		})
 	})

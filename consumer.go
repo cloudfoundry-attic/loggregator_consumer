@@ -65,7 +65,7 @@ Messages are presented in the order received from the loggregator server. Chrono
 is not guaranteed. It is the responsibility of the consumer of these channels to provide any desired sorting
 mechanism.
 */
-func (conn *consumer) Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, <-chan error) {
+func (cnsmr *consumer) Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, <-chan error) {
 	incomingChan := make(chan *logmessage.LogMessage)
 	errChan := make(chan error)
 
@@ -76,12 +76,12 @@ func (conn *consumer) Tail(appGuid string, authToken string) (<-chan *logmessage
 		var err error
 
 		tailPath := fmt.Sprintf("/tail/?app=%s", appGuid)
-		conn.ws, err = conn.establishWebsocketConnection(tailPath, authToken)
+		cnsmr.ws, err = cnsmr.establishWebsocketConnection(tailPath, authToken)
 		if err != nil {
 			errChan <- err
 		} else {
-			go conn.sendKeepAlive()
-			conn.listenForMessages(incomingChan, errChan)
+			go cnsmr.sendKeepAlive()
+			cnsmr.listenForMessages(incomingChan, errChan)
 		}
 	}()
 
@@ -94,11 +94,11 @@ guarantee any order of the messages; they are in the order returned by loggregat
 
 The SortRecent method is provided to sort the data returned by this method.
 */
-func (conn *consumer) Recent(appGuid string, authToken string) ([]*logmessage.LogMessage, error) {
+func (cnsmr *consumer) Recent(appGuid string, authToken string) ([]*logmessage.LogMessage, error) {
 	var err error
 
 	dumpPath := fmt.Sprintf("/dump/?app=%s", appGuid)
-	conn.ws, err = conn.establishWebsocketConnection(dumpPath, authToken)
+	cnsmr.ws, err = cnsmr.establishWebsocketConnection(dumpPath, authToken)
 
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (conn *consumer) Recent(appGuid string, authToken string) ([]*logmessage.Lo
 	errorChan := make(chan error)
 
 	go func() {
-		conn.listenForMessages(messageChan, errorChan)
+		cnsmr.listenForMessages(messageChan, errorChan)
 		close(messageChan)
 		close(errorChan)
 	}()
@@ -142,16 +142,16 @@ drainLoop:
 
 /* Close terminates the websocket connection to loggregator.
  */
-func (conn *consumer) Close() error {
-	if conn.ws == nil {
+func (cnsmr *consumer) Close() error {
+	if cnsmr.ws == nil {
 		return errors.New("connection does not exist")
 	}
 
-	return conn.ws.Close()
+	return cnsmr.ws.Close()
 }
 
-func (conn *consumer) SetOnConnectCallback(cb func()) {
-	conn.callback = cb
+func (cnsmr *consumer) SetOnConnectCallback(cb func()) {
+	cnsmr.callback = cb
 }
 
 /*
@@ -179,9 +179,9 @@ func (lms logMessageSlice) Swap(i, j int) {
 	lms[i], lms[j] = lms[j], lms[i]
 }
 
-func (conn *consumer) sendKeepAlive() {
+func (cnsmr *consumer) sendKeepAlive() {
 	for {
-		err := websocket.Message.Send(conn.ws, "I'm alive!")
+		err := websocket.Message.Send(cnsmr.ws, "I'm alive!")
 		if err != nil {
 			return
 		}
@@ -189,13 +189,13 @@ func (conn *consumer) sendKeepAlive() {
 	}
 }
 
-func (conn *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, errChan chan<- error) {
-	defer conn.ws.Close()
+func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, errChan chan<- error) {
+	defer cnsmr.ws.Close()
 
 	for {
 		var data []byte
 
-		err := websocket.Message.Receive(conn.ws, &data)
+		err := websocket.Message.Receive(cnsmr.ws, &data)
 		if err != nil {
 			if err != io.EOF {
 				errChan <- err
@@ -214,24 +214,24 @@ func (conn *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, e
 	}
 }
 
-func (conn *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
+func (cnsmr *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
 	var protocol string
-	if conn.tlsConfig == nil {
+	if cnsmr.tlsConfig == nil {
 		protocol = "ws://"
 	} else {
 		protocol = "wss://"
 	}
 
-	wsConfig, err := websocket.NewConfig(protocol+conn.endpoint+path, "http://localhost")
+	wsConfig, err := websocket.NewConfig(protocol+cnsmr.endpoint+path, "http://localhost")
 	if err != nil {
 		return nil, err
 	}
 
-	wsConfig.TlsConfig = conn.tlsConfig
+	wsConfig.TlsConfig = cnsmr.tlsConfig
 	wsConfig.Header.Add("Authorization", authToken)
 	connection, err := websocket.DialConfig(wsConfig)
-	if err == nil && conn.callback != nil {
-		conn.callback()
+	if err == nil && cnsmr.callback != nil {
+		cnsmr.callback()
 	}
 
 	return connection, err

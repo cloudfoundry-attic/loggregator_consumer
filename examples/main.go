@@ -1,9 +1,9 @@
 package main
 
 import (
-	consumer "github.com/cloudfoundry/loggregator_consumer"
-	"fmt"
 	"crypto/tls"
+	"fmt"
+	consumer "github.com/cloudfoundry/loggregator_consumer"
 )
 
 var LoggregatorAddress = "loggregator.10.244.0.34.xip.io:443"
@@ -11,11 +11,11 @@ var appGuid = "<get your app guid and paste it here>"
 var authToken = "<get your auth token and paste it here>"
 
 func main() {
-	connection := consumer.NewConnection(LoggregatorAddress, &tls.Config{InsecureSkipVerify: true}, nil)
+	connection := consumer.New(LoggregatorAddress, &tls.Config{InsecureSkipVerify: true}, nil)
 
 	messages, err := connection.Recent(appGuid, authToken)
 
-	if (err != nil) {
+	if err != nil {
 		fmt.Printf("===== Error getting recent messages: %v\n", err)
 	} else {
 		fmt.Println("===== Recent messages")
@@ -29,12 +29,12 @@ func main() {
 
 	for {
 		select {
-		case msg, ok := <- msgChan:
+		case msg, ok := <-msgChan:
 			fmt.Printf("%v ok: %v\n", msg, ok)
 			if !ok {
 				return
 			}
-		case err, ok := <- errChan:
+		case err, ok := <-errChan:
 			fmt.Printf("ERR*** %v ok: %v\n", err, ok)
 			if !ok {
 				return

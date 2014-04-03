@@ -1,11 +1,11 @@
 package loggregator_consumer
 
 import (
-	gorilla "github.com/gorilla/websocket"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
+	"github.com/gorilla/websocket"
 	"io"
 	"net/http"
 	"net/url"
@@ -46,7 +46,7 @@ type LoggregatorConsumer interface {
 type consumer struct {
 	endpoint  string
 	tlsConfig *tls.Config
-	ws        *gorilla.Conn
+	ws        *websocket.Conn
 	callback  func()
 }
 
@@ -181,7 +181,7 @@ func (lms logMessageSlice) Swap(i, j int) {
 
 func (conn *consumer) sendKeepAlive() {
 	for {
-		err := conn.ws.WriteMessage(gorilla.TextMessage, []byte("I'm alive!"))
+		err := conn.ws.WriteMessage(websocket.TextMessage, []byte("I'm alive!"))
 		if err != nil {
 			return
 		}
@@ -214,7 +214,7 @@ func (conn *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, e
 	}
 }
 
-func (conn *consumer) establishWebsocketConnection(path string, authToken string) (*gorilla.Conn, error) {
+func (conn *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
 	var protocol string
 	if conn.tlsConfig == nil {
 		protocol = "ws://"
@@ -223,12 +223,18 @@ func (conn *consumer) establishWebsocketConnection(path string, authToken string
 	}
 
 	header := http.Header{"Origin": []string{"http://localhost"}, "Authorization": []string{authToken}}
-	dialer := gorilla.Dialer{TLSClientConfig: conn.tlsConfig}
+	dialer := websocket.Dialer{TLSClientConfig: conn.tlsConfig}
 
-	ws, _, err := dialer.Dial(protocol+conn.endpoint+path, header)
+	ws, resp, err := dialer.Dial(protocol+conn.endpoint+path, header)
 
 	if err == nil && conn.callback != nil {
 		conn.callback()
+	}
+	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
+		bodyData := make([]byte, 4096)
+		resp.Body.Read(bodyData)
+		resp.Body.Close()
+		err = errors.New(string(bodyData))
 	}
 
 	return ws, err

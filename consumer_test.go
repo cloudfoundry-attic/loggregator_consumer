@@ -4,13 +4,25 @@ import (
 	"code.google.com/p/go.net/websocket"
 	"code.google.com/p/gogoprotobuf/proto"
 	"crypto/tls"
+	"fmt"
 	consumer "github.com/cloudfoundry/loggregator_consumer"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"net/http"
 	"net/http/httptest"
 	"time"
 )
+
+type authFailer struct {
+	Message string
+}
+
+func (failer authFailer) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+	rw.Header().Set("WWW-Authenticate", "Basic")
+	rw.WriteHeader(http.StatusUnauthorized)
+	fmt.Fprintf(rw, "You are not authorized. %s", failer.Message)
+}
 
 type FakeHandler struct {
 	Messages              []*logmessage.LogMessage
@@ -227,9 +239,26 @@ var _ = Describe("Loggregator Consumer", func() {
 					perform()
 					err := <-errChan
 
-					Expect(err).ToNot(BeNil())
+					Expect(err).To(HaveOccurred())
 
 					close(done)
+				})
+			})
+			Context("when the authorization fails", func() {
+				var failer authFailer
+
+				BeforeEach(func() {
+					failer = authFailer{Message: "Helpful message"}
+					testServer = httptest.NewServer(failer)
+					endpoint = testServer.Listener.Addr().String()
+				})
+
+				It("it returns a helpful error message", func() {
+					perform()
+
+					err := <-errChan
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("You are not authorized. Helpful message"))
 				})
 			})
 		})
@@ -338,6 +367,22 @@ var _ = Describe("Loggregator Consumer", func() {
 				perform()
 
 				Expect(fakeHandler.lastURL).To(ContainSubstring("/dump/?app=app-guid"))
+			})
+		})
+		Context("when the authorization fails", func() {
+			var failer authFailer
+
+			BeforeEach(func() {
+				failer = authFailer{Message: "Helpful message"}
+				testServer = httptest.NewServer(failer)
+				endpoint = testServer.Listener.Addr().String()
+			})
+
+			It("it returns a helpful error message", func() {
+				perform()
+
+				Expect(recentError).To(HaveOccurred())
+				Expect(recentError.Error()).To(ContainSubstring("You are not authorized. Helpful message"))
 			})
 		})
 	})

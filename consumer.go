@@ -1,7 +1,7 @@
 package loggregator_consumer
 
 import (
-	"code.google.com/p/go.net/websocket"
+	gorilla "github.com/gorilla/websocket"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -46,7 +46,7 @@ type LoggregatorConsumer interface {
 type consumer struct {
 	endpoint  string
 	tlsConfig *tls.Config
-	ws        *websocket.Conn
+	ws        *gorilla.Conn
 	callback  func()
 }
 
@@ -181,7 +181,7 @@ func (lms logMessageSlice) Swap(i, j int) {
 
 func (conn *consumer) sendKeepAlive() {
 	for {
-		err := websocket.Message.Send(conn.ws, "I'm alive!")
+		err := conn.ws.WriteMessage(gorilla.TextMessage, []byte("I'm alive!"))
 		if err != nil {
 			return
 		}
@@ -195,7 +195,7 @@ func (conn *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, e
 	for {
 		var data []byte
 
-		err := websocket.Message.Receive(conn.ws, &data)
+		_, data, err := conn.ws.ReadMessage()
 		if err != nil {
 			if err != io.EOF {
 				errChan <- err
@@ -214,7 +214,7 @@ func (conn *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, e
 	}
 }
 
-func (conn *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
+func (conn *consumer) establishWebsocketConnection(path string, authToken string) (*gorilla.Conn, error) {
 	var protocol string
 	if conn.tlsConfig == nil {
 		protocol = "ws://"
@@ -222,17 +222,14 @@ func (conn *consumer) establishWebsocketConnection(path string, authToken string
 		protocol = "wss://"
 	}
 
-	wsConfig, err := websocket.NewConfig(protocol+conn.endpoint+path, "http://localhost")
-	if err != nil {
-		return nil, err
-	}
+	header := http.Header{"Origin": []string{"http://localhost"}, "Authorization": []string{authToken}}
+	dialer := gorilla.Dialer{TLSClientConfig: conn.tlsConfig}
 
-	wsConfig.TlsConfig = conn.tlsConfig
-	wsConfig.Header.Add("Authorization", authToken)
-	connection, err := websocket.DialConfig(wsConfig)
+	ws, _, err := dialer.Dial(protocol+conn.endpoint+path, header)
+
 	if err == nil && conn.callback != nil {
 		conn.callback()
 	}
 
-	return connection, err
+	return ws, err
 }

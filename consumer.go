@@ -215,14 +215,7 @@ func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, 
 }
 
 func (cnsmr *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
-	var protocol string
-	if cnsmr.tlsConfig == nil {
-		protocol = "ws://"
-	} else {
-		protocol = "wss://"
-	}
-
-	wsConfig, err := websocket.NewConfig(protocol+cnsmr.endpoint+path, "http://localhost")
+	wsConfig, err := websocket.NewConfig(cnsmr.endpoint+path, "http://localhost")
 	if err != nil {
 		return nil, err
 	}

@@ -101,7 +101,7 @@ var _ = Describe("Loggregator Consumer", func() {
 	Describe("SetOnConnectCallback", func() {
 		BeforeEach(func() {
 			testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
-			endpoint = testServer.Listener.Addr().String()
+			endpoint = "ws://" + testServer.Listener.Addr().String()
 		})
 
 		It("sets a callback and calls it when connecting", func() {
@@ -140,7 +140,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		Context("when there is no TLS Config or proxy setting", func() {
 			BeforeEach(func() {
 				testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
-				endpoint = testServer.Listener.Addr().String()
+				endpoint = "ws://" + testServer.Listener.Addr().String()
 			})
 
 			Context("when the connection can be established", func() {
@@ -237,7 +237,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		Context("when SSL settings are passed in", func() {
 			BeforeEach(func() {
 				testServer = httptest.NewTLSServer(websocket.Handler(fakeHandler.handle))
-				endpoint = testServer.Listener.Addr().String()
+				endpoint = "wss://" + testServer.Listener.Addr().String()
 
 				tlsSettings = &tls.Config{InsecureSkipVerify: true}
 			})
@@ -255,7 +255,7 @@ var _ = Describe("Loggregator Consumer", func() {
 	Describe("Close", func() {
 		BeforeEach(func() {
 			testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
-			endpoint = testServer.Listener.Addr().String()
+			endpoint = "ws://" + testServer.Listener.Addr().String()
 		})
 
 		Context("when a connection is not open", func() {
@@ -301,7 +301,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		BeforeEach(func() {
 			testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
-			endpoint = testServer.Listener.Addr().String()
+			endpoint = "ws://" + testServer.Listener.Addr().String()
 		})
 
 		Context("when the connection cannot be established", func() {
@@ -311,7 +311,6 @@ var _ = Describe("Loggregator Consumer", func() {
 
 				Expect(recentError).ToNot(BeNil())
 			})
-
 		})
 
 		Context("when the connection can be established", func() {

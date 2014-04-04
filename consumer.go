@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
-	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -28,7 +27,7 @@ type LoggregatorConsumer interface {
 	//	Messages are presented in the order received from the loggregator server. Chronological or
 	//	other ordering is not guaranteed. It is the responsibility of the consumer of these channels
 	//	to provide any desired sorting mechanism.
-	Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, <-chan error)
+	Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, error)
 
 	//	Recent connects to loggregator via its 'dump' endpoint and returns a slice of recent messages.
 	//	It does not guarantee any order of the messages; they are in the order returned by loggregator.
@@ -65,27 +64,23 @@ Messages are presented in the order received from the loggregator server. Chrono
 is not guaranteed. It is the responsibility of the consumer of these channels to provide any desired sorting
 mechanism.
 */
-func (cnsmr *consumer) Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, <-chan error) {
+func (cnsmr *consumer) Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, error) {
 	incomingChan := make(chan *logmessage.LogMessage)
-	errChan := make(chan error)
+	var err error
 
-	go func() {
-		defer close(incomingChan)
-		defer close(errChan)
+	tailPath := fmt.Sprintf("/tail/?app=%s", appGuid)
+	cnsmr.ws, err = cnsmr.establishWebsocketConnection(tailPath, authToken)
 
-		var err error
+	if err == nil {
+		go cnsmr.sendKeepAlive()
 
-		tailPath := fmt.Sprintf("/tail/?app=%s", appGuid)
-		cnsmr.ws, err = cnsmr.establishWebsocketConnection(tailPath, authToken)
-		if err != nil {
-			errChan <- err
-		} else {
-			go cnsmr.sendKeepAlive()
-			cnsmr.listenForMessages(incomingChan, errChan)
-		}
-	}()
+		go func() {
+			defer close(incomingChan)
+			cnsmr.listenForMessages(incomingChan)
+		}()
+	}
 
-	return incomingChan, errChan
+	return incomingChan, err
 }
 
 /*
@@ -106,28 +101,15 @@ func (cnsmr *consumer) Recent(appGuid string, authToken string) ([]*logmessage.L
 
 	messages := []*logmessage.LogMessage{}
 	messageChan := make(chan *logmessage.LogMessage)
-	errorChan := make(chan error)
 
 	go func() {
-		cnsmr.listenForMessages(messageChan, errorChan)
+		err = cnsmr.listenForMessages(messageChan)
 		close(messageChan)
-		close(errorChan)
 	}()
-
-	var firstError error
 
 drainLoop:
 	for {
 		select {
-		case err, ok := <-errorChan:
-			if !ok {
-				break drainLoop
-			}
-
-			if firstError == nil {
-				firstError = err
-			}
-
 		case msg, ok := <-messageChan:
 			if !ok {
 				break drainLoop
@@ -137,7 +119,7 @@ drainLoop:
 		}
 	}
 
-	return messages, firstError
+	return messages, nil
 }
 
 /* Close terminates the websocket connection to loggregator.
@@ -189,7 +171,7 @@ func (cnsmr *consumer) sendKeepAlive() {
 	}
 }
 
-func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, errChan chan<- error) {
+func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage) error {
 	defer cnsmr.ws.Close()
 
 	for {
@@ -197,16 +179,11 @@ func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage, 
 
 		err := websocket.Message.Receive(cnsmr.ws, &data)
 		if err != nil {
-			if err != io.EOF {
-				errChan <- err
-			}
-
-			break
+			return err
 		}
 
 		msg, msgErr := logmessage.ParseMessage(data)
 		if msgErr != nil {
-			errChan <- msgErr
 			continue
 		}
 

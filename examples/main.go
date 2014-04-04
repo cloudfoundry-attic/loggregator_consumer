@@ -11,7 +11,7 @@ var appGuid = "<get your app guid and paste it here>"
 var authToken = "<get your auth token and paste it here>"
 
 func main() {
-	connection := consumer.NewConnection(LoggregatorAddress, &tls.Config{InsecureSkipVerify: true}, nil)
+	connection := consumer.New(LoggregatorAddress, &tls.Config{InsecureSkipVerify: true}, nil)
 
 	messages, err := connection.Recent(appGuid, authToken)
 
@@ -25,20 +25,13 @@ func main() {
 	}
 
 	fmt.Println("===== Tailing messages")
-	msgChan, errChan := connection.Tail(appGuid, authToken)
+	msgChan, err := connection.Tail(appGuid, authToken)
 
-	for {
-		select {
-		case msg, ok := <-msgChan:
-			fmt.Printf("%v ok: %v\n", msg, ok)
-			if !ok {
-				return
-			}
-		case err, ok := <-errChan:
-			fmt.Printf("ERR*** %v ok: %v\n", err, ok)
-			if !ok {
-				return
-			}
+	if err != nil {
+		fmt.Printf("===== Error tailing: %v\n", err)
+	} else {
+		for msg := range msgChan {
+			fmt.Printf("%v \n", msg)
 		}
 	}
 }

@@ -1,4 +1,4 @@
-loggregator_consumer [![Build Status](https://travis-ci.org/cloudfoundry/loggregator_consumer.svg)](https://travis-ci.org/cloudfoundry/loggregator_consumer)
+loggregator_consumer [![Build Status](https://travis-ci.org/cloudfoundry/loggregator_consumer.svg)](https://travis-ci.org/cloudfoundry/loggregator_consumer) [![GoDoc](https://godoc.org/github.com/cloudfoundry/loggregator_consumer?status.png)](https://godoc.org/github.com/cloudfoundry/loggregator_consumer)
 ==================
 
 Loggregator consumer is a library that allows an application developer to set up

@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	// KeepAlive sets the interval between keep-alive messages sent by the client to loggregator.
 	KeepAlive = 25 * time.Second
 )
 
@@ -51,7 +52,7 @@ type consumer struct {
 	callback  func()
 }
 
-/* NewConsumer creates a new consumer to a loggregator endpoint.
+/* New creates a new consumer to a loggregator endpoint.
  */
 func New(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConsumer {
 	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig}

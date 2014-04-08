@@ -1,3 +1,5 @@
+// Package loggregator_consumer provides a simple, channel-based API for clients to communicate with
+// loggregator servers.
 package loggregator_consumer
 
 import (

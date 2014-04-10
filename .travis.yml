@@ -7,7 +7,7 @@ notifications:
 before_install:
 - go get code.google.com/p/go.tools/cmd/cover
 - go get github.com/mattn/goveralls
-- go install -v github.com/onsi/ginkgo/ginkgo
+- go get -t github.com/onsi/ginkgo/ginkgo
 
 after_success:
 - 'echo "mode: set" > all.coverprofile'

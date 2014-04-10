@@ -10,9 +10,9 @@ before_install:
 - go install -v github.com/onsi/ginkgo/ginkgo
 
 after_success:
-- echo "mode: set" > all.coverprofile
-- find . -name '*.coverprofile' -exec "grep -v mode: {} >> all.coverprofile" \;
-- goveralls -coverprofile=all.coverprofile -service=travis-ci  -repotoken=$COVERALLS_TOKEN
+- "echo 'mode: set' > all.coverprofile"
+- "find . -name '*.coverprofile' -exec grep -v mode: {} >> all.coverprofile \;"
+- "goveralls -coverprofile=all.coverprofile -service=travis-ci  -repotoken=$COVERALLS_TOKEN"
 
 install:
 - go get -d -v -t ./...

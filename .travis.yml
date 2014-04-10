@@ -9,7 +9,6 @@ before_install:
 after_success:
 - 'echo "mode: set" > all.coverprofile'
 - 'find . -name "*.coverprofile" -exec grep -v mode: {} >> all.coverprofile \;'
-- cat all.coverprofile
 - goveralls -coverprofile=all.coverprofile -service=travis-ci  -repotoken=$COVERALLS_TOKEN
 install:
 - go get -d -v -t ./...

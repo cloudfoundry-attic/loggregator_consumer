@@ -75,7 +75,7 @@ func (cnsmr *consumer) Tail(appGuid string, authToken string) (<-chan *logmessag
 	cnsmr.ws, err = cnsmr.establishWebsocketConnection(tailPath, authToken)
 
 	if err == nil {
-		go cnsmr.sendKeepAlive()
+		go cnsmr.sendKeepAlive(KeepAlive)
 
 		go func() {
 			defer close(incomingChan)
@@ -164,13 +164,13 @@ func (lms logMessageSlice) Swap(i, j int) {
 	lms[i], lms[j] = lms[j], lms[i]
 }
 
-func (cnsmr *consumer) sendKeepAlive() {
+func (cnsmr *consumer) sendKeepAlive(interval time.Duration) {
 	for {
 		err := cnsmr.ws.WriteMessage(websocket.TextMessage, []byte("I'm alive!"))
 		if err != nil {
 			return
 		}
-		time.Sleep(KeepAlive)
+		time.Sleep(interval)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"time"
+	"sync"
 )
 
 type authFailer struct {
@@ -32,13 +33,50 @@ type FakeHandler struct {
 	messageReceived       chan bool
 	lastURL               string
 	authHeader            string
+	sync.RWMutex
+}
+
+func (fh *FakeHandler) getAuthHeader() string {
+	fh.RLock()
+	defer fh.RUnlock()
+	return fh.authHeader
+}
+
+func (fh *FakeHandler) setAuthHeader(authHeader string) {
+	fh.Lock()
+	defer fh.Unlock()
+	fh.authHeader = authHeader
+}
+
+func (fh *FakeHandler) getLastURL() string {
+	fh.RLock()
+	defer fh.RUnlock()
+	return fh.lastURL
+}
+
+func (fh *FakeHandler) setLastURL(url string) {
+	fh.Lock()
+	defer fh.Unlock()
+	fh.lastURL = url
+}
+
+func (fh *FakeHandler) call() {
+	fh.Lock()
+	defer fh.Unlock()
+	fh.called = true
+}
+
+func (fh *FakeHandler) wasCalled() bool {
+	fh.RLock()
+	defer fh.RUnlock()
+	return fh.called
 }
 
 func (fh *FakeHandler) handle(conn *websocket.Conn) {
-	fh.called = true
+	fh.call()
 	request := conn.Request()
-	fh.lastURL = request.URL.String()
-	fh.authHeader = request.Header.Get("Authorization")
+	fh.setLastURL(request.URL.String())
+	fh.setAuthHeader(request.Header.Get("Authorization"))
 
 	if fh.messageReceived != nil {
 		go func() {
@@ -92,7 +130,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		connection  consumer.LoggregatorConsumer
 		endpoint    string
 		testServer  *httptest.Server
-		fakeHandler FakeHandler
+		fakeHandler *FakeHandler
 		tlsSettings *tls.Config
 
 		appGuid      string
@@ -103,7 +141,7 @@ var _ = Describe("Loggregator Consumer", func() {
 	)
 
 	BeforeEach(func() {
-		fakeHandler = FakeHandler{}
+		fakeHandler = &FakeHandler{}
 		fakeHandler.closeConnection = make(chan bool)
 	})
 
@@ -162,7 +200,7 @@ var _ = Describe("Loggregator Consumer", func() {
 					defer close(fakeHandler.closeConnection)
 					perform()
 
-					Eventually(func() bool { return fakeHandler.called }).Should(BeTrue())
+					Eventually(fakeHandler.wasCalled).Should(BeTrue())
 				})
 
 				It("receives messages on the incoming channel", func(done Done) {
@@ -202,7 +240,7 @@ var _ = Describe("Loggregator Consumer", func() {
 					appGuid = "the-app-guid"
 					perform()
 
-					Eventually(func() string { return fakeHandler.lastURL }).Should(ContainSubstring("/tail/?app=the-app-guid"))
+					Eventually(fakeHandler.getLastURL).Should(ContainSubstring("/tail/?app=the-app-guid"))
 				})
 
 				It("sends an Authorization header with an access token", func() {
@@ -210,7 +248,7 @@ var _ = Describe("Loggregator Consumer", func() {
 					authToken = "auth-token"
 					perform()
 
-					Eventually(func() string { return fakeHandler.authHeader }).Should(Equal("auth-token"))
+					Eventually(fakeHandler.getAuthHeader).Should(Equal("auth-token"))
 				})
 
 				Context("when the message fails to parse", func() {
@@ -299,7 +337,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				incomingChan, err := connection.Tail("app-guid", "auth-token")
 				close(fakeHandler.closeConnection)
 
-				Eventually(func() bool { return fakeHandler.called }).Should(BeTrue())
+				Eventually(fakeHandler.wasCalled).Should(BeTrue())
 
 				connection.Close()
 
@@ -343,7 +381,7 @@ var _ = Describe("Loggregator Consumer", func() {
 			It("connects to the loggregator server", func() {
 				perform()
 
-				Expect(fakeHandler.called).To(BeTrue())
+				Expect(fakeHandler.wasCalled()).To(BeTrue())
 			})
 
 			It("returns messages from the server", func() {
@@ -362,7 +400,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				appGuid = "app-guid"
 				perform()
 
-				Expect(fakeHandler.lastURL).To(ContainSubstring("/dump/?app=app-guid"))
+				Expect(fakeHandler.getLastURL()).To(ContainSubstring("/dump/?app=app-guid"))
 			})
 		})
 		Context("when the authorization fails", func() {

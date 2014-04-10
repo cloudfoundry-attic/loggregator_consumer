@@ -7,8 +7,8 @@ before_install:
 - go get github.com/mattn/goveralls
 - go get -t github.com/onsi/ginkgo/ginkgo
 after_success:
-- ! echo "mode: set" > all.coverprofile
-- ! find . -name "*.coverprofile" -exec grep -v mode: {} >> all.coverprofile \;
+- 'echo "mode: set" > all.coverprofile'
+- 'find . -name "*.coverprofile" -exec grep -v mode: {} >> all.coverprofile \;'
 - cat all.coverprofile
 - goveralls -coverprofile=all.coverprofile -service=travis-ci  -repotoken=$COVERALLS_TOKEN
 install:

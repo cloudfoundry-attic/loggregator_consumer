@@ -7,12 +7,14 @@ import (
 	"fmt"
 	consumer "github.com/cloudfoundry/loggregator_consumer"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
+	"github.com/elazarl/goproxy"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"net/http"
 	"net/http/httptest"
-	"time"
+	"net/url"
 	"sync"
+	"time"
 )
 
 type authFailer struct {
@@ -132,6 +134,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		testServer  *httptest.Server
 		fakeHandler *FakeHandler
 		tlsSettings *tls.Config
+		proxy       func(*http.Request) (*url.URL, error)
 
 		appGuid      string
 		authToken    string
@@ -184,7 +187,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 	Describe("Tail", func() {
 		perform := func() {
-			connection = consumer.New(endpoint, tlsSettings, nil)
+			connection = consumer.New(endpoint, tlsSettings, proxy)
 			incomingChan, err = connection.Tail(appGuid, authToken)
 		}
 
@@ -312,6 +315,28 @@ var _ = Describe("Loggregator Consumer", func() {
 				close(fakeHandler.closeConnection)
 
 				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("when Proxy is set", func() {
+			BeforeEach(func() {
+				testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
+				endpoint = "ws://" + testServer.Listener.Addr().String()
+
+				proxyServer := httptest.NewServer(goproxy.NewProxyHttpServer())
+				proxy = func(*http.Request) (*url.URL, error) {
+					return url.Parse(proxyServer.URL)
+				}
+			})
+
+			It("connects via proxy", func() {
+				defer close(fakeHandler.closeConnection)
+
+				fakeHandler.Messages = []*logmessage.LogMessage{createMessage("hello", 0)}
+				perform()
+				message := <-incomingChan
+
+				Expect(message.Message).To(Equal([]byte("hello")))
 			})
 		})
 	})

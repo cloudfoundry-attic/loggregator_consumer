@@ -325,6 +325,10 @@ var _ = Describe("Loggregator Consumer", func() {
 				endpoint = "ws://" + testServer.Listener.Addr().String()
 			})
 
+			AfterEach(func() {
+				proxy = nil
+			})
+
 			It("connects using valid URL to running proxy server", func() {
 				defer close(fakeHandler.closeConnection)
 

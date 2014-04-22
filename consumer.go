@@ -254,7 +254,7 @@ func (cnsmr *consumer) proxyDial(network, addr string) (net.Conn, error) {
 		proxyConn.Close()
 		return nil, err
 	}
-	if connectResp.StatusCode != 200 {
+	if connectResp.StatusCode != http.StatusOK {
 		f := strings.SplitN(connectResp.Status, " ", 2)
 		proxyConn.Close()
 		return nil, errors.New(f[1])

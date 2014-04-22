@@ -3,14 +3,17 @@
 package loggregator_consumer
 
 import (
+	"bufio"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
 	"github.com/gorilla/websocket"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -50,12 +53,13 @@ type consumer struct {
 	tlsConfig *tls.Config
 	ws        *websocket.Conn
 	callback  func()
+	proxy     func(*http.Request) (*url.URL, error)
 }
 
 /* New creates a new consumer to a loggregator endpoint.
  */
 func New(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConsumer {
-	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig}
+	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig, proxy: proxy}
 }
 
 /*
@@ -196,7 +200,7 @@ func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage) 
 
 func (cnsmr *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
 	header := http.Header{"Origin": []string{"http://localhost"}, "Authorization": []string{authToken}}
-	dialer := websocket.Dialer{TLSClientConfig: cnsmr.tlsConfig}
+	dialer := websocket.Dialer{NetDial: cnsmr.proxyDial, TLSClientConfig: cnsmr.tlsConfig}
 
 	ws, resp, err := dialer.Dial(cnsmr.endpoint+path, header)
 
@@ -211,4 +215,50 @@ func (cnsmr *consumer) establishWebsocketConnection(path string, authToken strin
 	}
 
 	return ws, err
+}
+
+func (cnsmr *consumer) proxyDial(network, addr string) (net.Conn, error) {
+	targetUrl, err := url.Parse("http://" + addr)
+	if err != nil {
+		return nil, err
+	}
+
+	proxy := cnsmr.proxy
+	if proxy == nil {
+		proxy = http.ProxyFromEnvironment
+	}
+
+	proxyUrl, err := proxy(&http.Request{URL: targetUrl})
+	if err != nil {
+		return nil, err
+	}
+	if proxyUrl == nil {
+		return net.Dial(network, addr)
+	}
+
+	proxyConn, err := net.Dial(network, proxyUrl.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	connectReq := &http.Request{
+		Method: "CONNECT",
+		URL:    targetUrl,
+		Host:   targetUrl.Host,
+		Header: make(http.Header),
+	}
+	connectReq.Write(proxyConn)
+
+	connectResp, err := http.ReadResponse(bufio.NewReader(proxyConn), connectReq)
+	if err != nil {
+		proxyConn.Close()
+		return nil, err
+	}
+	if connectResp.StatusCode != http.StatusOK {
+		f := strings.SplitN(connectResp.Status, " ", 2)
+		proxyConn.Close()
+		return nil, errors.New(f[1])
+	}
+
+	return proxyConn, nil
 }

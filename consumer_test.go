@@ -4,15 +4,18 @@ import (
 	"code.google.com/p/go.net/websocket"
 	"code.google.com/p/gogoprotobuf/proto"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	consumer "github.com/cloudfoundry/loggregator_consumer"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
+	"github.com/elazarl/goproxy"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"net/http"
 	"net/http/httptest"
-	"time"
+	"net/url"
 	"sync"
+	"time"
 )
 
 type authFailer struct {
@@ -132,6 +135,7 @@ var _ = Describe("Loggregator Consumer", func() {
 		testServer  *httptest.Server
 		fakeHandler *FakeHandler
 		tlsSettings *tls.Config
+		proxy       func(*http.Request) (*url.URL, error)
 
 		appGuid      string
 		authToken    string
@@ -146,7 +150,9 @@ var _ = Describe("Loggregator Consumer", func() {
 	})
 
 	AfterEach(func() {
-		testServer.Close()
+		if testServer != nil {
+			testServer.Close()
+		}
 	})
 
 	Describe("SetOnConnectCallback", func() {
@@ -184,7 +190,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 	Describe("Tail", func() {
 		perform := func() {
-			connection = consumer.New(endpoint, tlsSettings, nil)
+			connection = consumer.New(endpoint, tlsSettings, proxy)
 			incomingChan, err = connection.Tail(appGuid, authToken)
 		}
 
@@ -312,6 +318,89 @@ var _ = Describe("Loggregator Consumer", func() {
 				close(fakeHandler.closeConnection)
 
 				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("when Proxy is set", func() {
+			BeforeEach(func() {
+				testServer = httptest.NewServer(websocket.Handler(fakeHandler.handle))
+				endpoint = "ws://" + testServer.Listener.Addr().String()
+			})
+
+			AfterEach(func() {
+				proxy = nil
+			})
+
+			It("connects using valid URL to running proxy server", func() {
+				defer close(fakeHandler.closeConnection)
+
+				proxyServer := httptest.NewServer(goproxy.NewProxyHttpServer())
+				proxy = func(*http.Request) (*url.URL, error) {
+					return url.Parse(proxyServer.URL)
+				}
+
+				fakeHandler.Messages = []*logmessage.LogMessage{createMessage("hello", 0)}
+				perform()
+				message := <-incomingChan
+
+				Expect(message.Message).To(Equal([]byte("hello")))
+			})
+
+			It("connects using valid URL to a stopped proxy server", func() {
+				proxyServer := httptest.NewServer(goproxy.NewProxyHttpServer())
+				proxy = func(*http.Request) (*url.URL, error) {
+					return url.Parse(proxyServer.URL)
+				}
+				proxyServer.Close()
+
+				perform()
+				close(fakeHandler.closeConnection)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("connection refused"))
+			})
+
+			It("connects using invalid URL", func() {
+				errMsg := "Invalid proxy URL"
+				proxy = func(*http.Request) (*url.URL, error) {
+					return nil, errors.New(errMsg)
+				}
+
+				perform()
+				close(fakeHandler.closeConnection)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(errMsg))
+			})
+
+			It("connects to a proxy server rejecting CONNECT requests", func() {
+				p := goproxy.NewProxyHttpServer()
+				p.OnRequest().HandleConnectFunc(goproxy.AlwaysReject)
+
+				proxyServer := httptest.NewServer(p)
+				proxy = func(*http.Request) (*url.URL, error) {
+					return url.Parse(proxyServer.URL)
+				}
+
+				perform()
+				close(fakeHandler.closeConnection)
+
+				Expect(err).To(HaveOccurred())
+			})
+
+			It("connects to a non-proxy server", func() {
+				nonProxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "Go away, I am not a proxy!", http.StatusBadRequest)
+				}))
+				proxy = func(*http.Request) (*url.URL, error) {
+					return url.Parse(nonProxyServer.URL)
+				}
+
+				perform()
+				close(fakeHandler.closeConnection)
+
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring(http.StatusText(http.StatusBadRequest)))
 			})
 		})
 	})

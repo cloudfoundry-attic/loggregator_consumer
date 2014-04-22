@@ -150,7 +150,9 @@ var _ = Describe("Loggregator Consumer", func() {
 	})
 
 	AfterEach(func() {
-		testServer.Close()
+		if testServer != nil {
+			testServer.Close()
+		}
 	})
 
 	Describe("SetOnConnectCallback", func() {

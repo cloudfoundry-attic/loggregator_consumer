@@ -147,7 +147,7 @@ func (cnsmr *consumer) httpRecent(appGuid string, authToken string) ([]*logmessa
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
 		data, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.New(string(data))
+		return nil, NewUnauthorizedError(string(data))
 	}
 
 	if resp.StatusCode == http.StatusBadRequest {

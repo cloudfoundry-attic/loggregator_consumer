@@ -308,9 +308,7 @@ func (cnsmr *consumer) establishWebsocketConnection(path string, authToken strin
 		cnsmr.callback()
 	}
 	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
-		bodyData := make([]byte, 4096)
-		resp.Body.Read(bodyData)
-		resp.Body.Close()
+		bodyData, _ := ioutil.ReadAll(resp.Body)
 		err = NewUnauthorizedError(string(bodyData))
 	}
 

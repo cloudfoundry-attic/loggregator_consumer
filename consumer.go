@@ -142,7 +142,7 @@ func (cnsmr *consumer) httpRecent(appGuid string, authToken string) ([]*logmessa
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, errors.New(fmt.Sprintf("Error dialing loggregator server: %s.\nPlease ask your Cloud Foundry Operator to check the platform configuration (loggregator endpoint is %s).", err.Error(), cnsmr.endpoint))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
@@ -303,6 +303,10 @@ func (cnsmr *consumer) establishWebsocketConnection(path string, authToken strin
 	dialer := websocket.Dialer{NetDial: cnsmr.proxyDial, TLSClientConfig: cnsmr.tlsConfig}
 
 	ws, resp, err := dialer.Dial(cnsmr.endpoint+path, header)
+
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Error dialing loggregator server: %s.\nPlease ask your Cloud Foundry Operator to check the platform configuration (loggregator endpoint is %s).", err.Error(), cnsmr.endpoint))
+	}
 
 	if err == nil && cnsmr.callback != nil {
 		cnsmr.callback()

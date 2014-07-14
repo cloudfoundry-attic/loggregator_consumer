@@ -29,10 +29,3 @@ export PATH=$PATH:$GOPATH/bin
 go get github.com/cloudfoundry/loggregator_consumer/sample_consumer
 sample_consumer
 ```
-
-
-
-	
-
-
-

@@ -131,15 +131,7 @@ var _ = Describe("Loggregator Consumer", func() {
 			close(messagesToSend)
 			connection.Tail(appGuid, authToken)
 
-			Expect(debugPrinter.Messages).To(ContainElement(ContainSubstring("Sec-WebSocket-Version: 13")))
-		})
-
-		It("includes websocket URL and timestamp", func() {
-			close(messagesToSend)
-			connection.Recent(appGuid, authToken)
-
-			Expect(debugPrinter.Messages).To(ContainElement(ContainSubstring(testServer.Listener.Addr().String())))
-			Expect(debugPrinter.Messages).To(ContainElement(MatchRegexp(`\[\d+-\d+-\d+T.*?\]`)))
+			Expect(debugPrinter.Messages[0].Body).To(ContainSubstring("Sec-WebSocket-Version: 13"))
 		})
 
 		It("does not include messages sent or received", func() {
@@ -148,7 +140,7 @@ var _ = Describe("Loggregator Consumer", func() {
 			close(messagesToSend)
 			connection.Tail(appGuid, authToken)
 
-			Expect(debugPrinter.Messages).ToNot(ContainElement(ContainSubstring("hello")))
+			Expect(debugPrinter.Messages[0].Body).ToNot(ContainSubstring("hello"))
 		})
 	})
 
@@ -689,10 +681,14 @@ func (fh *FakeHandler) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 }
 
 type fakeDebugPrinter struct {
-	Messages []string
+	Messages []*fakeDebugPrinterMessage
 }
 
-func (p *fakeDebugPrinter) Printf(format string, v ...interface{}) {
-	message := fmt.Sprintf(format, v...)
+type fakeDebugPrinterMessage struct {
+	Title, Body string
+}
+
+func (p *fakeDebugPrinter) Print(title, body string) {
+	message := &fakeDebugPrinterMessage{title, body}
 	p.Messages = append(p.Messages, message)
 }

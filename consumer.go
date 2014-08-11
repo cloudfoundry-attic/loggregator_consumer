@@ -61,13 +61,13 @@ type LoggregatorConsumer interface {
 }
 
 type DebugPrinter interface {
-	Printf(format string, v ...interface{})
+	Print(title, dump string)
 }
 
 type nullDebugPrinter struct {
 }
 
-func (nullDebugPrinter) Printf(format string, v ...interface{}) {
+func (nullDebugPrinter) Print(title, body string) {
 }
 
 type consumer struct {
@@ -336,7 +336,8 @@ func (c *wrappedConn) Read(b []byte) (n int, err error) {
 	n, err = c.conn.Read(b)
 	if c.debug {
 		text := string(b[0:n])
-		c.debugPrinter.Printf("WEBSOCKET RESPONSE FROM %v [%v]\n%v\n", c.RemoteAddr().String(), time.Now().Format(time.RFC3339), stripBody(text))
+		text = stripBody(text)
+		c.debugPrinter.Print("WEBSOCKET RESPONSE", text)
 	}
 	return
 }
@@ -344,7 +345,8 @@ func (c *wrappedConn) Write(b []byte) (n int, err error) {
 	n, err = c.conn.Write(b)
 	if c.debug {
 		text := string(b[0:n])
-		c.debugPrinter.Printf("WEBSOCKET REQUEST TO %v [%v]\n%v\n", c.RemoteAddr().String(), time.Now().Format(time.RFC3339), stripBody(text))
+		text = stripBody(text)
+		c.debugPrinter.Print("WEBSOCKET REQUEST", text)
 	}
 	return
 }

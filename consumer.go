@@ -318,75 +318,33 @@ func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage) 
 	}
 }
 
-func stripBody(text string) string {
-	terminatorIndex := strings.Index(text, "\r\n\r\n")
-	if terminatorIndex != -1 {
-		text = text[:terminatorIndex+2]
+func headersString(header http.Header) string {
+	var result string
+	for name, values := range header {
+		result += name + ": " + strings.Join(values, ", ") + "\n"
 	}
-	return text
-}
-
-type wrappedConn struct {
-	conn         net.Conn
-	debugPrinter DebugPrinter
-	debug        bool
-}
-
-func (c *wrappedConn) Read(b []byte) (n int, err error) {
-	n, err = c.conn.Read(b)
-	if c.debug {
-		text := string(b[0:n])
-		text = stripBody(text)
-		c.debugPrinter.Print("WEBSOCKET RESPONSE", text)
-	}
-	return
-}
-func (c *wrappedConn) Write(b []byte) (n int, err error) {
-	n, err = c.conn.Write(b)
-	if c.debug {
-		text := string(b[0:n])
-		text = stripBody(text)
-		c.debugPrinter.Print("WEBSOCKET REQUEST", text)
-	}
-	return
-}
-func (c *wrappedConn) Close() error {
-	return c.conn.Close()
-}
-func (c *wrappedConn) LocalAddr() net.Addr {
-	return c.conn.LocalAddr()
-}
-func (c *wrappedConn) RemoteAddr() net.Addr {
-	return c.conn.RemoteAddr()
-}
-func (c *wrappedConn) SetDeadline(t time.Time) error {
-	return c.conn.SetDeadline(t)
-}
-func (c *wrappedConn) SetReadDeadline(t time.Time) error {
-	return c.conn.SetReadDeadline(t)
-}
-func (c *wrappedConn) SetWriteDeadline(t time.Time) error {
-	return c.conn.SetWriteDeadline(t)
+	return result
 }
 
 func (cnsmr *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
 	header := http.Header{"Origin": []string{"http://localhost"}, "Authorization": []string{authToken}}
 
-	var wrappedConnection *wrappedConn
-
-	wrappedNetDial := func(network, addr string) (net.Conn, error) {
-		conn, err := cnsmr.proxyDial(network, addr)
-		wrappedConnection = &wrappedConn{conn: conn, debug: true, debugPrinter: cnsmr.debugPrinter}
-		return wrappedConnection, err
-	}
-	dialer := websocket.Dialer{NetDial: wrappedNetDial, TLSClientConfig: cnsmr.tlsConfig}
+	dialer := websocket.Dialer{NetDial: cnsmr.proxyDial, TLSClientConfig: cnsmr.tlsConfig}
 
 	url := cnsmr.endpoint + path
 
+	cnsmr.debugPrinter.Print("WEBSOCKET REQUEST:",
+		"GET " + path + " HTTP/1.1\n" +
+		"Host: " + cnsmr.endpoint + "\n" +
+		"Upgrade: websocket\nConnection: Upgrade\nSec-WebSocket-Version: 13\nSec-WebSocket-Key: [HIDDEN]\n" +
+		headersString(header))
+
 	ws, resp, err := dialer.Dial(url, header)
 
-	if wrappedConnection != nil {
-		wrappedConnection.debug = false
+	if resp != nil {
+		cnsmr.debugPrinter.Print("WEBSOCKET RESPONSE:",
+			resp.Proto + " " + resp.Status + "\n" +
+			headersString(resp.Header))
 	}
 
 	if resp != nil && resp.StatusCode == http.StatusUnauthorized {

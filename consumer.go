@@ -55,20 +55,40 @@ type LoggregatorConsumer interface {
 
 	// SetOnConnectCallback sets a callback function to be called with the websocket connection is established.
 	SetOnConnectCallback(func())
+
+	// SetDebugPrinter enables logging of the websocket handshake
+	SetDebugPrinter(DebugPrinter)
+}
+
+type DebugPrinter interface {
+	Printf(format string, v ...interface{})
+}
+
+type nullDebugPrinter struct {
+}
+
+func (nullDebugPrinter) Printf(format string, v ...interface{}) {
 }
 
 type consumer struct {
-	endpoint  string
-	tlsConfig *tls.Config
-	ws        *websocket.Conn
-	callback  func()
-	proxy     func(*http.Request) (*url.URL, error)
+	endpoint     string
+	tlsConfig    *tls.Config
+	ws           *websocket.Conn
+	callback     func()
+	proxy        func(*http.Request) (*url.URL, error)
+	debugPrinter DebugPrinter
 }
 
 /* New creates a new consumer to a loggregator endpoint.
  */
 func New(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConsumer {
-	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig, proxy: proxy}
+	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig, proxy: proxy, debugPrinter: nullDebugPrinter{}}
+}
+
+/* SetDebugPrinter enables logging of the websocket handshake
+ */
+func (cnsmr *consumer) SetDebugPrinter(debugPrinter DebugPrinter) {
+	cnsmr.debugPrinter = debugPrinter
 }
 
 /*
@@ -298,11 +318,74 @@ func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage) 
 	}
 }
 
+func stripBody(text string) string {
+	terminatorIndex := strings.Index(text, "\r\n\r\n")
+	if terminatorIndex != -1 {
+		text = text[:terminatorIndex+2]
+	}
+	return text
+}
+
+type wrappedConn struct {
+	conn         net.Conn
+	debugPrinter DebugPrinter
+	debug        bool
+}
+
+func (c *wrappedConn) Read(b []byte) (n int, err error) {
+	n, err = c.conn.Read(b)
+	if c.debug {
+		text := string(b[0:n])
+		c.debugPrinter.Printf("WEBSOCKET RESPONSE FROM %v [%v]\n%v\n", c.RemoteAddr().String(), time.Now().Format(time.RFC3339), stripBody(text))
+	}
+	return
+}
+func (c *wrappedConn) Write(b []byte) (n int, err error) {
+	n, err = c.conn.Write(b)
+	if c.debug {
+		text := string(b[0:n])
+		c.debugPrinter.Printf("WEBSOCKET REQUEST TO %v [%v]\n%v\n", c.RemoteAddr().String(), time.Now().Format(time.RFC3339), stripBody(text))
+	}
+	return
+}
+func (c *wrappedConn) Close() error {
+	return c.conn.Close()
+}
+func (c *wrappedConn) LocalAddr() net.Addr {
+	return c.conn.LocalAddr()
+}
+func (c *wrappedConn) RemoteAddr() net.Addr {
+	return c.conn.RemoteAddr()
+}
+func (c *wrappedConn) SetDeadline(t time.Time) error {
+	return c.conn.SetDeadline(t)
+}
+func (c *wrappedConn) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+func (c *wrappedConn) SetWriteDeadline(t time.Time) error {
+	return c.conn.SetWriteDeadline(t)
+}
+
 func (cnsmr *consumer) establishWebsocketConnection(path string, authToken string) (*websocket.Conn, error) {
 	header := http.Header{"Origin": []string{"http://localhost"}, "Authorization": []string{authToken}}
-	dialer := websocket.Dialer{NetDial: cnsmr.proxyDial, TLSClientConfig: cnsmr.tlsConfig}
 
-	ws, resp, err := dialer.Dial(cnsmr.endpoint+path, header)
+	var wrappedConnection *wrappedConn
+
+	wrappedNetDial := func(network, addr string) (net.Conn, error) {
+		conn, err := cnsmr.proxyDial(network, addr)
+		wrappedConnection = &wrappedConn{conn: conn, debug: true, debugPrinter: cnsmr.debugPrinter}
+		return wrappedConnection, err
+	}
+	dialer := websocket.Dialer{NetDial: wrappedNetDial, TLSClientConfig: cnsmr.tlsConfig}
+
+	url := cnsmr.endpoint + path
+
+	ws, resp, err := dialer.Dial(url, header)
+
+	if wrappedConnection != nil {
+		wrappedConnection.debug = false
+	}
 
 	if resp != nil && resp.StatusCode == http.StatusUnauthorized {
 		bodyData, _ := ioutil.ReadAll(resp.Body)

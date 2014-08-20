@@ -552,7 +552,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			messages = []*events.Envelope{createMessage("hello", 2), createMessage("konnichiha", 1)}
 		})
 
-		FIt("sorts messages", func() {
+		It("sorts messages", func() {
 			sortedMessages := dropsonde_consumer.SortRecent(messages)
 
 			Expect(*sortedMessages[0].Timestamp).To(Equal(int64(1)))

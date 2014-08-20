@@ -564,9 +564,9 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 			sortedMessages := dropsonde_consumer.SortRecent(messages)
 
-			Expect(sortedMessages[0].GetLogMessage()).To(Equal([]byte("konnichiha")))
-			Expect(sortedMessages[1].GetLogMessage()).To(Equal([]byte("guten tag")))
-			Expect(sortedMessages[2].GetLogMessage()).To(Equal([]byte("hello")))
+			Expect(sortedMessages[0].GetLogMessage().GetMessage()).To(Equal([]byte("konnichiha")))
+			Expect(sortedMessages[1].GetLogMessage().GetMessage()).To(Equal([]byte("guten tag")))
+			Expect(sortedMessages[2].GetLogMessage().GetMessage()).To(Equal([]byte("hello")))
 		})
 	})
 })

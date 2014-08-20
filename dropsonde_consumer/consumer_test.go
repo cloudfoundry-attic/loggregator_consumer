@@ -1,4 +1,4 @@
-package loggregator_consumer_test
+package dropsonde_consumer_test
 
 import (
 	"bytes"
@@ -6,9 +6,9 @@ import (
 	"code.google.com/p/gogoprotobuf/proto"
 	"crypto/tls"
 	"fmt"
-	consumer "github.com/cloudfoundry/loggregator_consumer"
+	"github.com/cloudfoundry/dropsonde/events"
+	"github.com/cloudfoundry/loggregator_consumer/dropsonde_consumer"
 	"github.com/cloudfoundry/loggregator_consumer/noaa_errors"
-	"github.com/cloudfoundry/loggregatorlib/logmessage"
 	"github.com/cloudfoundry/loggregatorlib/server/handlers"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -21,9 +21,9 @@ import (
 	"time"
 )
 
-var _ = Describe("Loggregator Consumer", func() {
+var _ = Describe("Dropsonde Consumer", func() {
 	var (
-		connection        consumer.LoggregatorConsumer
+		connection        dropsonde_consumer.DropsondeConsumer
 		endpoint          string
 		testServer        *httptest.Server
 		fakeHandler       *FakeHandler
@@ -32,7 +32,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		appGuid        string
 		authToken      string
-		incomingChan   <-chan *logmessage.LogMessage
+		incomingChan   <-chan *events.Envelope
 		messagesToSend chan []byte
 
 		err error
@@ -64,7 +64,7 @@ var _ = Describe("Loggregator Consumer", func() {
 			called := false
 			cb := func() { called = true }
 
-			connection = consumer.New(endpoint, tlsSettings, nil)
+			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
 			connection.SetOnConnectCallback(cb)
 			connection.Tail(appGuid, authToken)
 
@@ -78,7 +78,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				called := false
 				cb := func() { called = true }
 
-				connection = consumer.New(endpoint, tlsSettings, nil)
+				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
 				connection.SetOnConnectCallback(cb)
 				connection.Tail(appGuid, authToken)
 
@@ -100,7 +100,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				called := false
 				cb := func() { called = true }
 
-				connection = consumer.New(endpoint, tlsSettings, nil)
+				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
 				connection.SetOnConnectCallback(cb)
 				connection.Tail(appGuid, authToken)
 
@@ -124,7 +124,7 @@ var _ = Describe("Loggregator Consumer", func() {
 			startFakeTrafficController()
 
 			debugPrinter = &fakeDebugPrinter{}
-			connection = consumer.New(endpoint, tlsSettings, consumerProxyFunc)
+			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, consumerProxyFunc)
 			connection.SetDebugPrinter(debugPrinter)
 		})
 
@@ -147,7 +147,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 	Describe("Tail", func() {
 		perform := func() {
-			connection = consumer.New(endpoint, tlsSettings, consumerProxyFunc)
+			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, consumerProxyFunc)
 			incomingChan, err = connection.Tail(appGuid, authToken)
 		}
 
@@ -163,7 +163,7 @@ var _ = Describe("Loggregator Consumer", func() {
 					perform()
 					message := <-incomingChan
 
-					Expect(message.Message).To(Equal([]byte("hello")))
+					Expect(message.GetLogMessage().GetMessage()).To(Equal([]byte("hello")))
 					close(messagesToSend)
 
 					close(done)
@@ -183,9 +183,9 @@ var _ = Describe("Loggregator Consumer", func() {
 					testServer := httptest.NewServer(websocket.Handler(messageCountingServer.handle))
 					defer testServer.Close()
 
-					consumer.KeepAlive = 10 * time.Millisecond
+					dropsonde_consumer.KeepAlive = 10 * time.Millisecond
 
-					connection = consumer.New("ws://"+testServer.Listener.Addr().String(), tlsSettings, consumerProxyFunc)
+					connection = dropsonde_consumer.NewDropsondeConsumer("ws://"+testServer.Listener.Addr().String(), tlsSettings, consumerProxyFunc)
 					incomingChan, err = connection.Tail(appGuid, authToken)
 					defer connection.Close()
 
@@ -217,7 +217,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 						message := <-incomingChan
 
-						Expect(message.Message).To(Equal([]byte("hello")))
+						Expect(message.GetLogMessage().GetMessage()).To(Equal([]byte("hello")))
 
 						close(done)
 					})
@@ -285,7 +285,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		Context("when a connection is not open", func() {
 			It("returns an error", func() {
-				connection = consumer.New(endpoint, nil, nil)
+				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
 				err := connection.Close()
 
 				Expect(err.Error()).To(Equal("connection does not exist"))
@@ -294,7 +294,7 @@ var _ = Describe("Loggregator Consumer", func() {
 
 		Context("when a connection is open", func() {
 			It("closes any open channels", func(done Done) {
-				connection = consumer.New(endpoint, nil, nil)
+				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
 				incomingChan, err := connection.Tail("app-guid", "auth-token")
 				close(messagesToSend)
 
@@ -314,13 +314,13 @@ var _ = Describe("Loggregator Consumer", func() {
 		var (
 			appGuid             = "appGuid"
 			authToken           = "authToken"
-			receivedLogMessages []*logmessage.LogMessage
+			receivedLogMessages []*events.Envelope
 			recentError         error
 		)
 
 		perform := func() {
 			close(messagesToSend)
-			connection = consumer.New(endpoint, nil, nil)
+			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
 			receivedLogMessages, recentError = connection.Recent(appGuid, authToken)
 		}
 
@@ -348,8 +348,8 @@ var _ = Describe("Loggregator Consumer", func() {
 
 				Expect(recentError).NotTo(HaveOccurred())
 				Expect(receivedLogMessages).To(HaveLen(2))
-				Expect(receivedLogMessages[0].Message).To(Equal([]byte("test-message-0")))
-				Expect(receivedLogMessages[1].Message).To(Equal([]byte("test-message-1")))
+				Expect(receivedLogMessages[0].GetLogMessage().GetMessage()).To(Equal([]byte("test-message-0")))
+				Expect(receivedLogMessages[1].GetLogMessage().GetMessage()).To(Equal([]byte("test-message-1")))
 			})
 		})
 
@@ -369,7 +369,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				perform()
 
 				Expect(recentError).To(HaveOccurred())
-				Expect(recentError).To(Equal(consumer.ErrBadResponse))
+				Expect(recentError).To(Equal(dropsonde_consumer.ErrBadResponse))
 			})
 
 		})
@@ -406,7 +406,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				perform()
 
 				Expect(recentError).To(HaveOccurred())
-				Expect(recentError).To(Equal(consumer.ErrBadResponse))
+				Expect(recentError).To(Equal(dropsonde_consumer.ErrBadResponse))
 			})
 
 		})
@@ -427,7 +427,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				perform()
 
 				Expect(recentError).To(HaveOccurred())
-				Expect(recentError).To(Equal(consumer.ErrBadResponse))
+				Expect(recentError).To(Equal(dropsonde_consumer.ErrBadResponse))
 			})
 
 		})
@@ -447,7 +447,7 @@ var _ = Describe("Loggregator Consumer", func() {
 				perform()
 
 				Expect(recentError).To(HaveOccurred())
-				Expect(recentError).To(Equal(consumer.ErrNotFound))
+				Expect(recentError).To(Equal(dropsonde_consumer.ErrNotFound))
 			})
 
 		})
@@ -477,13 +477,13 @@ var _ = Describe("Loggregator Consumer", func() {
 		var (
 			appGuid     string
 			authToken   string
-			logMessages []*logmessage.LogMessage
+			logMessages []*events.Envelope
 			recentError error
 		)
 
 		perform := func() {
 			close(messagesToSend)
-			connection = consumer.New(endpoint, nil, nil)
+			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
 			logMessages, recentError = connection.Recent(appGuid, authToken)
 		}
 
@@ -515,8 +515,8 @@ var _ = Describe("Loggregator Consumer", func() {
 				perform()
 
 				Expect(logMessages).To(HaveLen(2))
-				Expect(logMessages[0].Message).To(Equal([]byte("test-message-0")))
-				Expect(logMessages[1].Message).To(Equal([]byte("test-message-1")))
+				Expect(logMessages[0].GetLogMessage().GetMessage()).To(Equal([]byte("test-message-0")))
+				Expect(logMessages[1].GetLogMessage().GetMessage()).To(Equal([]byte("test-message-1")))
 			})
 
 			It("calls the right path on the loggregator endpoint", func() {
@@ -546,14 +546,14 @@ var _ = Describe("Loggregator Consumer", func() {
 	})
 
 	Describe("SortRecent", func() {
-		var messages []*logmessage.LogMessage
+		var messages []*events.Envelope
 
 		BeforeEach(func() {
-			messages = []*logmessage.LogMessage{createMessage("hello", 2), createMessage("konnichiha", 1)}
+			messages = []*events.Envelope{createMessage("hello", 2), createMessage("konnichiha", 1)}
 		})
 
-		It("sorts messages", func() {
-			sortedMessages := consumer.SortRecent(messages)
+		FIt("sorts messages", func() {
+			sortedMessages := dropsonde_consumer.SortRecent(messages)
 
 			Expect(*sortedMessages[0].Timestamp).To(Equal(int64(1)))
 			Expect(*sortedMessages[1].Timestamp).To(Equal(int64(2)))
@@ -562,33 +562,39 @@ var _ = Describe("Loggregator Consumer", func() {
 		It("sorts using a stable algorithm", func() {
 			messages = append(messages, createMessage("guten tag", 1))
 
-			sortedMessages := consumer.SortRecent(messages)
+			sortedMessages := dropsonde_consumer.SortRecent(messages)
 
-			Expect(sortedMessages[0].Message).To(Equal([]byte("konnichiha")))
-			Expect(sortedMessages[1].Message).To(Equal([]byte("guten tag")))
-			Expect(sortedMessages[2].Message).To(Equal([]byte("hello")))
+			Expect(sortedMessages[0].GetLogMessage()).To(Equal([]byte("konnichiha")))
+			Expect(sortedMessages[1].GetLogMessage()).To(Equal([]byte("guten tag")))
+			Expect(sortedMessages[2].GetLogMessage()).To(Equal([]byte("hello")))
 		})
 	})
 })
 
-func createMessage(message string, timestamp int64) *logmessage.LogMessage {
-	messageType := logmessage.LogMessage_OUT
-	sourceName := "DEA"
-
+func createMessage(message string, timestamp int64) *events.Envelope {
 	if timestamp == 0 {
 		timestamp = time.Now().UnixNano()
 	}
 
-	return &logmessage.LogMessage{
+	logMessageType := events.LogMessage_OUT
+	logMessage := &events.LogMessage{
 		Message:     []byte(message),
+		MessageType: &logMessageType,
 		AppId:       proto.String("my-app-guid"),
-		MessageType: &messageType,
-		SourceName:  &sourceName,
+		SourceType:  proto.String("DEA"),
 		Timestamp:   proto.Int64(timestamp),
+	}
+
+	eventType := events.Envelope_LogMessage
+	return &events.Envelope{
+		LogMessage: logMessage,
+		EventType:  &eventType,
+		Origin:     proto.String("fake-origin-1"),
+		Timestamp:  proto.Int64(timestamp),
 	}
 }
 
-func marshalMessage(message *logmessage.LogMessage) []byte {
+func marshalMessage(message *events.Envelope) []byte {
 	data, err := proto.Marshal(message)
 	if err != nil {
 		log.Println(err.Error())

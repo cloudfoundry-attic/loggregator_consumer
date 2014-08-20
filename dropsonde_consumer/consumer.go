@@ -1,6 +1,4 @@
-// Package loggregator_consumer provides a simple, channel-based API for clients to communicate with
-// loggregator servers.
-package loggregator_consumer
+package dropsonde_consumer
 
 import (
 	"bufio"
@@ -9,8 +7,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/cloudfoundry/dropsonde/dropsonde_unmarshaller"
+	"github.com/cloudfoundry/dropsonde/events"
+	"github.com/cloudfoundry/gosteno"
 	"github.com/cloudfoundry/loggregator_consumer/noaa_errors"
-	"github.com/cloudfoundry/loggregatorlib/logmessage"
 	"github.com/gorilla/websocket"
 	"io/ioutil"
 	"mime/multipart"
@@ -32,9 +32,9 @@ var (
 	ErrBadRequest  = errors.New("bad client request")
 )
 
-/* LoggregatorConsumer represents the actions that can be performed against a loggregator server.
+/* DropsondeConsumer represents the actions that can be performed against a loggregator server.
  */
-type LoggregatorConsumer interface {
+type DropsondeConsumer interface {
 
 	//	Tail listens indefinitely for log messages. It returns two channels; the first is populated
 	//	with log messages, while the second contains errors (e.g. from parsing messages). It returns
@@ -43,13 +43,13 @@ type LoggregatorConsumer interface {
 	//	Messages are presented in the order received from the loggregator server. Chronological or
 	//	other ordering is not guaranteed. It is the responsibility of the consumer of these channels
 	//	to provide any desired sorting mechanism.
-	Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, error)
+	Tail(appGuid string, authToken string) (<-chan *events.Envelope, error)
 
 	//	Recent connects to loggregator via its 'recent' endpoint and returns a slice of recent messages.
 	//	It does not guarantee any order of the messages; they are in the order returned by loggregator.
 	//
 	//	The SortRecent method is provided to sort the data returned by this method.
-	Recent(appGuid string, authToken string) ([]*logmessage.LogMessage, error)
+	Recent(appGuid string, authToken string) ([]*events.Envelope, error)
 
 	// Close terminates the websocket connection to loggregator.
 	Close() error
@@ -82,7 +82,7 @@ type consumer struct {
 
 /* New creates a new consumer to a loggregator endpoint.
  */
-func New(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) LoggregatorConsumer {
+func NewDropsondeConsumer(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) DropsondeConsumer {
 	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig, proxy: proxy, debugPrinter: nullDebugPrinter{}}
 }
 
@@ -101,8 +101,8 @@ Messages are presented in the order received from the loggregator server. Chrono
 is not guaranteed. It is the responsibility of the consumer of these channels to provide any desired sorting
 mechanism.
 */
-func (cnsmr *consumer) Tail(appGuid string, authToken string) (<-chan *logmessage.LogMessage, error) {
-	incomingChan := make(chan *logmessage.LogMessage)
+func (cnsmr *consumer) Tail(appGuid string, authToken string) (<-chan *events.Envelope, error) {
+	incomingChan := make(chan *events.Envelope)
 	var err error
 
 	tailPath := fmt.Sprintf("/tail/?app=%s", appGuid)
@@ -129,7 +129,7 @@ It does not guarantee any order of the messages; they are in the order returned 
 
 The SortRecent method is provided to sort the data returned by this method.
 */
-func (cnsmr *consumer) Recent(appGuid string, authToken string) ([]*logmessage.LogMessage, error) {
+func (cnsmr *consumer) Recent(appGuid string, authToken string) ([]*events.Envelope, error) {
 	messages, err := cnsmr.httpRecent(appGuid, authToken)
 	if err != ErrBadRequest {
 		return messages, err
@@ -142,7 +142,7 @@ func (cnsmr *consumer) Recent(appGuid string, authToken string) ([]*logmessage.L
 httpRecent connects to loggregator via its 'recent' http(s) endpoint and returns a slice of recent messages.
 It does not guarantee any order of the messages; they are in the order returned by loggregator.
 */
-func (cnsmr *consumer) httpRecent(appGuid string, authToken string) ([]*logmessage.LogMessage, error) {
+func (cnsmr *consumer) httpRecent(appGuid string, authToken string) ([]*events.Envelope, error) {
 	endpointUrl, err := url.ParseRequestURI(cnsmr.endpoint)
 	if err != nil {
 		return nil, err
@@ -194,12 +194,12 @@ func (cnsmr *consumer) httpRecent(appGuid string, authToken string) ([]*logmessa
 	reader := multipart.NewReader(resp.Body, matches[1])
 
 	var buffer bytes.Buffer
-	messages := make([]*logmessage.LogMessage, 0, 200)
+	messages := make([]*events.Envelope, 0, 200)
 
 	for part, loopErr := reader.NextPart(); loopErr == nil; part, loopErr = reader.NextPart() {
 		buffer.Reset()
 
-		msg := new(logmessage.LogMessage)
+		msg := new(events.Envelope)
 		_, err := buffer.ReadFrom(part)
 		if err != nil {
 			break
@@ -217,7 +217,7 @@ guarantee any order of the messages; they are in the order returned by loggregat
 
 The SortRecent method is provided to sort the data returned by this method.
 */
-func (cnsmr *consumer) dump(appGuid string, authToken string) ([]*logmessage.LogMessage, error) {
+func (cnsmr *consumer) dump(appGuid string, authToken string) ([]*events.Envelope, error) {
 	var err error
 
 	dumpPath := fmt.Sprintf("/dump/?app=%s", appGuid)
@@ -227,8 +227,8 @@ func (cnsmr *consumer) dump(appGuid string, authToken string) ([]*logmessage.Log
 		return nil, err
 	}
 
-	messages := []*logmessage.LogMessage{}
-	messageChan := make(chan *logmessage.LogMessage)
+	messages := []*events.Envelope{}
+	messageChan := make(chan *events.Envelope)
 
 	go func() {
 		err = cnsmr.listenForMessages(messageChan)
@@ -270,12 +270,12 @@ messages with the same timestamp are sorted in the order that they are received.
 
 The input slice is sorted; the return value is simply a pointer to the same slice.
 */
-func SortRecent(messages []*logmessage.LogMessage) []*logmessage.LogMessage {
+func SortRecent(messages []*events.Envelope) []*events.Envelope {
 	sort.Stable(logMessageSlice(messages))
 	return messages
 }
 
-type logMessageSlice []*logmessage.LogMessage
+type logMessageSlice []*events.Envelope
 
 func (lms logMessageSlice) Len() int {
 	return len(lms)
@@ -299,23 +299,23 @@ func (cnsmr *consumer) sendKeepAlive(interval time.Duration) {
 	}
 }
 
-func (cnsmr *consumer) listenForMessages(msgChan chan<- *logmessage.LogMessage) error {
+func (cnsmr *consumer) listenForMessages(msgChan chan<- *events.Envelope) error {
 	defer cnsmr.ws.Close()
 
-	for {
-		var data []byte
+	unmarshaller := dropsonde_unmarshaller.NewDropsondeUnmarshaller(gosteno.NewLogger(""))
 
+	for {
 		_, data, err := cnsmr.ws.ReadMessage()
 		if err != nil {
 			return err
 		}
 
-		msg, msgErr := logmessage.ParseMessage(data)
-		if msgErr != nil {
+		msg, err := unmarshaller.UnmarshallMessage(data)
+		if err != nil {
 			continue
 		}
 
-		msgChan <- msg.GetLogMessage()
+		msgChan <- msg
 	}
 }
 

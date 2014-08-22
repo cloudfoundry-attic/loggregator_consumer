@@ -197,7 +197,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 					perform()
 					close(messagesToSend)
 
-					Eventually(fakeHandler.getLastURL).Should(ContainSubstring("/tailinglogs/?app=the-app-guid"))
+					Eventually(fakeHandler.getLastURL).Should(ContainSubstring("/apps/the-app-guid/tailinglogs"))
 				})
 
 				It("sends an Authorization header with an access token", func() {
@@ -328,7 +328,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 					perform()
 					close(messagesToSend)
 
-					Eventually(fakeHandler.getLastURL).Should(ContainSubstring("/stream/?app=the-app-guid"))
+					Eventually(fakeHandler.getLastURL).Should(ContainSubstring("/apps/the-app-guid/stream"))
 				})
 
 				It("sends an Authorization header with an access token", func() {
@@ -488,7 +488,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 
 				serverMux := http.NewServeMux()
-				serverMux.HandleFunc("/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
+				serverMux.HandleFunc("/apps/appGuid/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
 					resp.Header().Set("Content-Type", "")
 					resp.Write([]byte("OK"))
 				})
@@ -526,7 +526,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 
 				serverMux := http.NewServeMux()
-				serverMux.HandleFunc("/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
+				serverMux.HandleFunc("/apps/appGuid/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
 					resp.Write([]byte("OK"))
 				})
 				testServer = httptest.NewServer(serverMux)
@@ -546,7 +546,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 
 				serverMux := http.NewServeMux()
-				serverMux.HandleFunc("/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
+				serverMux.HandleFunc("/apps/appGuid/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
 					resp.Header().Set("Content-Type", "boundary=")
 					resp.Write([]byte("OK"))
 				})
@@ -567,7 +567,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 
 				serverMux := http.NewServeMux()
-				serverMux.HandleFunc("/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
+				serverMux.HandleFunc("/apps/appGuid/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
 					resp.WriteHeader(http.StatusNotFound)
 				})
 				testServer = httptest.NewServer(serverMux)
@@ -589,7 +589,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 				failer = authFailer{Message: "Helpful message"}
 				serverMux := http.NewServeMux()
-				serverMux.Handle("/recentlogs", failer)
+				serverMux.Handle("/apps/appGuid/recentlogs", failer)
 				testServer = httptest.NewServer(serverMux)
 				endpoint = "ws://" + testServer.Listener.Addr().String()
 			})

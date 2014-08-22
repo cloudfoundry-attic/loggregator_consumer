@@ -116,7 +116,7 @@ func (cnsmr *consumer) TailingLogs(appGuid string, authToken string) (<-chan *ev
 	incomingChan := make(chan *events.Envelope)
 	var err error
 
-	tailPath := fmt.Sprintf("/tailinglogs/?app=%s", appGuid)
+	tailPath := fmt.Sprintf("/apps/%s/tailinglogs", appGuid)
 	cnsmr.ws, err = cnsmr.establishWebsocketConnection(tailPath, authToken)
 
 	if err == nil {
@@ -144,7 +144,7 @@ func (cnsmr *consumer) Stream(appGuid string, authToken string) (<-chan *events.
 	incomingChan := make(chan *events.Envelope)
 	var err error
 
-	streamPath := fmt.Sprintf("/stream/?app=%s", appGuid)
+	streamPath := fmt.Sprintf("/apps/%s/stream", appGuid)
 	cnsmr.ws, err = cnsmr.establishWebsocketConnection(streamPath, authToken)
 
 	if err == nil {
@@ -193,7 +193,7 @@ func (cnsmr *consumer) httpRecentLogs(appGuid string, authToken string) ([]*even
 		scheme = "http"
 	}
 
-	recentPath := fmt.Sprintf("%s://%s/recentlogs?app=%s", scheme, endpointUrl.Host, appGuid)
+	recentPath := fmt.Sprintf("%s://%s/apps/%s/recentlogs", scheme, endpointUrl.Host, appGuid)
 	transport := &http.Transport{Proxy: cnsmr.proxy, TLSClientConfig: cnsmr.tlsConfig}
 	client := &http.Client{Transport: transport}
 

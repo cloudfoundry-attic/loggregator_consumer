@@ -66,7 +66,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
 			connection.SetOnConnectCallback(cb)
-			connection.Tail(appGuid, authToken)
+			connection.TailingLogs(appGuid, authToken)
 
 			Eventually(func() bool { return called }).Should(BeTrue())
 		})
@@ -80,7 +80,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
 				connection.SetOnConnectCallback(cb)
-				connection.Tail(appGuid, authToken)
+				connection.TailingLogs(appGuid, authToken)
 
 				Consistently(func() bool { return called }).Should(BeFalse())
 			})
@@ -102,7 +102,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
 				connection.SetOnConnectCallback(cb)
-				connection.Tail(appGuid, authToken)
+				connection.TailingLogs(appGuid, authToken)
 
 				Consistently(func() bool { return called }).Should(BeFalse())
 			})
@@ -130,7 +130,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 		It("includes websocket handshake", func() {
 			close(messagesToSend)
-			connection.Tail(appGuid, authToken)
+			connection.TailingLogs(appGuid, authToken)
 
 			Expect(debugPrinter.Messages[0].Body).To(ContainSubstring("Sec-WebSocket-Version: 13"))
 		})
@@ -139,16 +139,16 @@ var _ = Describe("Dropsonde Consumer", func() {
 			messagesToSend <- marshalMessage(createMessage("hello", 0))
 
 			close(messagesToSend)
-			connection.Tail(appGuid, authToken)
+			connection.TailingLogs(appGuid, authToken)
 
 			Expect(debugPrinter.Messages[0].Body).ToNot(ContainSubstring("hello"))
 		})
 	})
 
-	Describe("Tail", func() {
+	Describe("TailingLogs", func() {
 		perform := func() {
 			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, consumerProxyFunc)
-			incomingChan, err = connection.Tail(appGuid, authToken)
+			incomingChan, err = connection.TailingLogs(appGuid, authToken)
 		}
 
 		BeforeEach(func() {
@@ -186,7 +186,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 					dropsonde_consumer.KeepAlive = 10 * time.Millisecond
 
 					connection = dropsonde_consumer.NewDropsondeConsumer("ws://"+testServer.Listener.Addr().String(), tlsSettings, consumerProxyFunc)
-					incomingChan, err = connection.Tail(appGuid, authToken)
+					incomingChan, err = connection.TailingLogs(appGuid, authToken)
 					defer connection.Close()
 
 					Eventually(messageCountingServer.count).Should(BeNumerically("~", 10, 2))
@@ -197,7 +197,138 @@ var _ = Describe("Dropsonde Consumer", func() {
 					perform()
 					close(messagesToSend)
 
-					Eventually(fakeHandler.getLastURL).Should(ContainSubstring("/tail/?app=the-app-guid"))
+					Eventually(fakeHandler.getLastURL).Should(ContainSubstring("/tailinglogs/?app=the-app-guid"))
+				})
+
+				It("sends an Authorization header with an access token", func() {
+					authToken = "auth-token"
+					perform()
+					close(messagesToSend)
+
+					Eventually(fakeHandler.getAuthHeader).Should(Equal("auth-token"))
+				})
+
+				Context("when the message fails to parse", func() {
+					It("skips that message but continues to read messages", func(done Done) {
+						messagesToSend <- []byte{0}
+						messagesToSend <- marshalMessage(createMessage("hello", 0))
+						perform()
+						close(messagesToSend)
+
+						message := <-incomingChan
+
+						Expect(message.GetLogMessage().GetMessage()).To(Equal([]byte("hello")))
+
+						close(done)
+					})
+				})
+			})
+
+			Context("when the connection cannot be established", func() {
+				BeforeEach(func() {
+					endpoint = "!!!bad-endpoint"
+				})
+
+				It("returns an error", func(done Done) {
+					perform()
+
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("Please ask your Cloud Foundry Operator"))
+
+					close(done)
+				})
+			})
+
+			Context("when the authorization fails", func() {
+				var failer authFailer
+
+				BeforeEach(func() {
+					failer = authFailer{Message: "Helpful message"}
+					testServer = httptest.NewServer(failer)
+					endpoint = "ws://" + testServer.Listener.Addr().String()
+				})
+
+				It("it returns a helpful error message", func() {
+					perform()
+
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("You are not authorized. Helpful message"))
+					Expect(err).To(BeAssignableToTypeOf(&noaa_errors.UnauthorizedError{}))
+				})
+			})
+		})
+
+		Context("when SSL settings are passed in", func() {
+			BeforeEach(func() {
+				//				fakeHandler = &FakeHandler{innerHandler: }
+				testServer = httptest.NewTLSServer(handlers.NewWebsocketHandler(messagesToSend, 100*time.Millisecond))
+				endpoint = "wss://" + testServer.Listener.Addr().String()
+
+				tlsSettings = &tls.Config{InsecureSkipVerify: true}
+			})
+
+			It("connects using those settings", func() {
+				perform()
+				close(messagesToSend)
+
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+	})
+
+	Describe("Stream", func() {
+		perform := func() {
+			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, consumerProxyFunc)
+			incomingChan, err = connection.Stream(appGuid, authToken)
+		}
+
+		BeforeEach(func() {
+			startFakeTrafficController()
+		})
+
+		Context("when there is no TLS Config or consumerProxyFunc setting", func() {
+			Context("when the connection can be established", func() {
+				It("receives messages on the incoming channel", func(done Done) {
+					messagesToSend <- marshalMessage(createMessage("hello", 0))
+
+					perform()
+					message := <-incomingChan
+
+					Expect(message.GetLogMessage().GetMessage()).To(Equal([]byte("hello")))
+					close(messagesToSend)
+
+					close(done)
+				})
+
+				It("closes the channel after the server closes the connection", func(done Done) {
+					perform()
+					close(messagesToSend)
+
+					Eventually(incomingChan).Should(BeClosed())
+
+					close(done)
+				})
+
+				It("sends a keepalive to the server", func() {
+					messageCountingServer := &messageCountingHandler{}
+					testServer := httptest.NewServer(websocket.Handler(messageCountingServer.handle))
+					defer testServer.Close()
+
+					dropsonde_consumer.KeepAlive = 10 * time.Millisecond
+
+					connection = dropsonde_consumer.NewDropsondeConsumer("ws://"+testServer.Listener.Addr().String(), tlsSettings, consumerProxyFunc)
+					incomingChan, err = connection.Stream(appGuid, authToken)
+					defer connection.Close()
+
+					Eventually(messageCountingServer.count).Should(BeNumerically("~", 10, 2))
+				})
+
+				It("sends messages for a specific app", func() {
+					appGuid = "the-app-guid"
+					perform()
+					close(messagesToSend)
+
+					Eventually(fakeHandler.getLastURL).Should(ContainSubstring("/stream/?app=the-app-guid"))
 				})
 
 				It("sends an Authorization header with an access token", func() {
@@ -295,7 +426,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 		Context("when a connection is open", func() {
 			It("closes any open channels", func(done Done) {
 				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
-				incomingChan, err := connection.Tail("app-guid", "auth-token")
+				incomingChan, err := connection.TailingLogs("app-guid", "auth-token")
 				close(messagesToSend)
 
 				Eventually(fakeHandler.wasCalled).Should(BeTrue())
@@ -310,7 +441,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 		})
 	})
 
-	Describe("Recent with http", func() {
+	Describe("RecentLogs with http", func() {
 		var (
 			appGuid             = "appGuid"
 			authToken           = "authToken"
@@ -321,7 +452,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 		perform := func() {
 			close(messagesToSend)
 			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
-			receivedLogMessages, recentError = connection.Recent(appGuid, authToken)
+			receivedLogMessages, recentError = connection.RecentLogs(appGuid, authToken)
 		}
 
 		Context("when the connection cannot be established", func() {
@@ -357,7 +488,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 
 				serverMux := http.NewServeMux()
-				serverMux.HandleFunc("/recent", func(resp http.ResponseWriter, req *http.Request) {
+				serverMux.HandleFunc("/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
 					resp.Header().Set("Content-Type", "")
 					resp.Write([]byte("OK"))
 				})
@@ -395,7 +526,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 
 				serverMux := http.NewServeMux()
-				serverMux.HandleFunc("/recent", func(resp http.ResponseWriter, req *http.Request) {
+				serverMux.HandleFunc("/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
 					resp.Write([]byte("OK"))
 				})
 				testServer = httptest.NewServer(serverMux)
@@ -415,7 +546,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 
 				serverMux := http.NewServeMux()
-				serverMux.HandleFunc("/recent", func(resp http.ResponseWriter, req *http.Request) {
+				serverMux.HandleFunc("/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
 					resp.Header().Set("Content-Type", "boundary=")
 					resp.Write([]byte("OK"))
 				})
@@ -436,7 +567,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 
 				serverMux := http.NewServeMux()
-				serverMux.HandleFunc("/recent", func(resp http.ResponseWriter, req *http.Request) {
+				serverMux.HandleFunc("/recentlogs", func(resp http.ResponseWriter, req *http.Request) {
 					resp.WriteHeader(http.StatusNotFound)
 				})
 				testServer = httptest.NewServer(serverMux)
@@ -458,7 +589,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			BeforeEach(func() {
 				failer = authFailer{Message: "Helpful message"}
 				serverMux := http.NewServeMux()
-				serverMux.Handle("/recent", failer)
+				serverMux.Handle("/recentlogs", failer)
 				testServer = httptest.NewServer(serverMux)
 				endpoint = "ws://" + testServer.Listener.Addr().String()
 			})
@@ -473,7 +604,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 		})
 	})
 
-	Describe("Recent", func() {
+	Describe("RecentLogs", func() {
 		var (
 			appGuid     string
 			authToken   string
@@ -484,7 +615,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 		perform := func() {
 			close(messagesToSend)
 			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
-			logMessages, recentError = connection.Recent(appGuid, authToken)
+			logMessages, recentError = connection.RecentLogs(appGuid, authToken)
 		}
 
 		BeforeEach(func() {

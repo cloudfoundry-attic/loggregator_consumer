@@ -7,7 +7,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	consumer "github.com/cloudfoundry/loggregator_consumer"
-	"github.com/cloudfoundry/loggregator_consumer/noaa_errors"
+	noaa_errors "github.com/cloudfoundry/noaa/errors"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
 	"github.com/cloudfoundry/loggregatorlib/server/handlers"
 	"github.com/cloudfoundry/loggregatorlib/loggertesthelper"

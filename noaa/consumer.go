@@ -1,4 +1,4 @@
-package dropsonde_consumer
+package noaa
 
 import (
 	"bufio"
@@ -32,9 +32,9 @@ var (
 	ErrBadRequest  = errors.New("bad client request")
 )
 
-/* DropsondeConsumer represents the actions that can be performed against a loggregator server.
+/* Noaa represents the actions that can be performed against a loggregator server.
  */
-type DropsondeConsumer interface {
+type Noaa interface {
 
 	//	TailingLogs listens indefinitely for log messages. It returns two channels; the first is populated
 	//	with log messages, while the second contains errors (e.g. from parsing messages). It returns
@@ -93,7 +93,7 @@ type consumer struct {
 
 /* New creates a new consumer to a loggregator endpoint.
  */
-func NewDropsondeConsumer(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) DropsondeConsumer {
+func NewNoaa(endpoint string, tlsConfig *tls.Config, proxy func(*http.Request) (*url.URL, error)) Noaa {
 	return &consumer{endpoint: endpoint, tlsConfig: tlsConfig, proxy: proxy, debugPrinter: nullDebugPrinter{}}
 }
 

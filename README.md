@@ -29,3 +29,9 @@ export PATH=$PATH:$GOPATH/bin
 go get github.com/cloudfoundry/loggregator_consumer/sample_consumer
 sample_consumer
 ```
+
+Development
+-----------------
+
+Use `go get -d -v -t ./... && ginkgo --race --randomizeAllSpecs --failOnPending --skipMeasurements --cover` to
+run the tests.

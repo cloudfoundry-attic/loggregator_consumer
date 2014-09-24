@@ -1,4 +1,4 @@
-package dropsonde_consumer_test
+package noaa_test
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/cloudfoundry/dropsonde/events"
-	"github.com/cloudfoundry/loggregator_consumer/dropsonde_consumer"
+	"github.com/cloudfoundry/loggregator_consumer/noaa"
 	"github.com/cloudfoundry/loggregator_consumer/noaa_errors"
 	"github.com/cloudfoundry/loggregatorlib/server/handlers"
 	. "github.com/onsi/ginkgo"
@@ -21,9 +21,9 @@ import (
 	"time"
 )
 
-var _ = Describe("Dropsonde Consumer", func() {
+var _ = Describe("Noaa", func() {
 	var (
-		connection        dropsonde_consumer.DropsondeConsumer
+		connection        noaa.Noaa
 		endpoint          string
 		testServer        *httptest.Server
 		fakeHandler       *FakeHandler
@@ -64,7 +64,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			called := false
 			cb := func() { called = true }
 
-			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
+			connection = noaa.NewNoaa(endpoint, tlsSettings, nil)
 			connection.SetOnConnectCallback(cb)
 			connection.TailingLogs(appGuid, authToken)
 
@@ -78,7 +78,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 				called := false
 				cb := func() { called = true }
 
-				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
+				connection = noaa.NewNoaa(endpoint, tlsSettings, nil)
 				connection.SetOnConnectCallback(cb)
 				connection.TailingLogs(appGuid, authToken)
 
@@ -100,7 +100,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 				called := false
 				cb := func() { called = true }
 
-				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, nil)
+				connection = noaa.NewNoaa(endpoint, tlsSettings, nil)
 				connection.SetOnConnectCallback(cb)
 				connection.TailingLogs(appGuid, authToken)
 
@@ -124,7 +124,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 			startFakeTrafficController()
 
 			debugPrinter = &fakeDebugPrinter{}
-			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, consumerProxyFunc)
+			connection = noaa.NewNoaa(endpoint, tlsSettings, consumerProxyFunc)
 			connection.SetDebugPrinter(debugPrinter)
 		})
 
@@ -147,7 +147,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 	Describe("TailingLogs", func() {
 		perform := func() {
-			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, consumerProxyFunc)
+			connection = noaa.NewNoaa(endpoint, tlsSettings, consumerProxyFunc)
 			incomingChan, err = connection.TailingLogs(appGuid, authToken)
 		}
 
@@ -183,9 +183,9 @@ var _ = Describe("Dropsonde Consumer", func() {
 					testServer := httptest.NewServer(websocket.Handler(messageCountingServer.handle))
 					defer testServer.Close()
 
-					dropsonde_consumer.KeepAlive = 10 * time.Millisecond
+					noaa.KeepAlive = 10 * time.Millisecond
 
-					connection = dropsonde_consumer.NewDropsondeConsumer("ws://"+testServer.Listener.Addr().String(), tlsSettings, consumerProxyFunc)
+					connection = noaa.NewNoaa("ws://"+testServer.Listener.Addr().String(), tlsSettings, consumerProxyFunc)
 					incomingChan, err = connection.TailingLogs(appGuid, authToken)
 					defer connection.Close()
 
@@ -278,7 +278,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 	Describe("Stream", func() {
 		perform := func() {
-			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, tlsSettings, consumerProxyFunc)
+			connection = noaa.NewNoaa(endpoint, tlsSettings, consumerProxyFunc)
 			incomingChan, err = connection.Stream(appGuid, authToken)
 		}
 
@@ -314,9 +314,9 @@ var _ = Describe("Dropsonde Consumer", func() {
 					testServer := httptest.NewServer(websocket.Handler(messageCountingServer.handle))
 					defer testServer.Close()
 
-					dropsonde_consumer.KeepAlive = 10 * time.Millisecond
+					noaa.KeepAlive = 10 * time.Millisecond
 
-					connection = dropsonde_consumer.NewDropsondeConsumer("ws://"+testServer.Listener.Addr().String(), tlsSettings, consumerProxyFunc)
+					connection = noaa.NewNoaa("ws://"+testServer.Listener.Addr().String(), tlsSettings, consumerProxyFunc)
 					incomingChan, err = connection.Stream(appGuid, authToken)
 					defer connection.Close()
 
@@ -416,7 +416,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 		Context("when a connection is not open", func() {
 			It("returns an error", func() {
-				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
+				connection = noaa.NewNoaa(endpoint, nil, nil)
 				err := connection.Close()
 
 				Expect(err.Error()).To(Equal("connection does not exist"))
@@ -425,7 +425,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 		Context("when a connection is open", func() {
 			It("closes any open channels", func(done Done) {
-				connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
+				connection = noaa.NewNoaa(endpoint, nil, nil)
 				incomingChan, err := connection.TailingLogs("app-guid", "auth-token")
 				close(messagesToSend)
 
@@ -451,7 +451,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 		perform := func() {
 			close(messagesToSend)
-			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
+			connection = noaa.NewNoaa(endpoint, nil, nil)
 			receivedLogMessages, recentError = connection.RecentLogs(appGuid, authToken)
 		}
 
@@ -500,7 +500,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 				perform()
 
 				Expect(recentError).To(HaveOccurred())
-				Expect(recentError).To(Equal(dropsonde_consumer.ErrBadResponse))
+				Expect(recentError).To(Equal(noaa.ErrBadResponse))
 			})
 
 		})
@@ -537,7 +537,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 				perform()
 
 				Expect(recentError).To(HaveOccurred())
-				Expect(recentError).To(Equal(dropsonde_consumer.ErrBadResponse))
+				Expect(recentError).To(Equal(noaa.ErrBadResponse))
 			})
 
 		})
@@ -558,7 +558,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 				perform()
 
 				Expect(recentError).To(HaveOccurred())
-				Expect(recentError).To(Equal(dropsonde_consumer.ErrBadResponse))
+				Expect(recentError).To(Equal(noaa.ErrBadResponse))
 			})
 
 		})
@@ -578,7 +578,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 				perform()
 
 				Expect(recentError).To(HaveOccurred())
-				Expect(recentError).To(Equal(dropsonde_consumer.ErrNotFound))
+				Expect(recentError).To(Equal(noaa.ErrNotFound))
 			})
 
 		})
@@ -614,7 +614,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 
 		perform := func() {
 			close(messagesToSend)
-			connection = dropsonde_consumer.NewDropsondeConsumer(endpoint, nil, nil)
+			connection = noaa.NewNoaa(endpoint, nil, nil)
 			logMessages, recentError = connection.RecentLogs(appGuid, authToken)
 		}
 
@@ -684,7 +684,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 		})
 
 		It("sorts messages", func() {
-			sortedMessages := dropsonde_consumer.SortRecent(messages)
+			sortedMessages := noaa.SortRecent(messages)
 
 			Expect(*sortedMessages[0].Timestamp).To(Equal(int64(1)))
 			Expect(*sortedMessages[1].Timestamp).To(Equal(int64(2)))
@@ -693,7 +693,7 @@ var _ = Describe("Dropsonde Consumer", func() {
 		It("sorts using a stable algorithm", func() {
 			messages = append(messages, createMessage("guten tag", 1))
 
-			sortedMessages := dropsonde_consumer.SortRecent(messages)
+			sortedMessages := noaa.SortRecent(messages)
 
 			Expect(sortedMessages[0].GetLogMessage().GetMessage()).To(Equal([]byte("konnichiha")))
 			Expect(sortedMessages[1].GetLogMessage().GetMessage()).To(Equal([]byte("guten tag")))

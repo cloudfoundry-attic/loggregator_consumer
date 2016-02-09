@@ -2,9 +2,16 @@ package loggregator_consumer_test
 
 import (
 	"bytes"
-	"code.google.com/p/go.net/websocket"
 	"crypto/tls"
 	"fmt"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	consumer "github.com/cloudfoundry/loggregator_consumer"
 	"github.com/cloudfoundry/loggregatorlib/loggertesthelper"
 	"github.com/cloudfoundry/loggregatorlib/logmessage"
@@ -13,13 +20,8 @@ import (
 	"github.com/gogo/protobuf/proto"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"log"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"sync"
-	"sync/atomic"
-	"time"
+
+	"golang.org/x/net/websocket"
 )
 
 var _ = Describe("Loggregator Consumer", func() {

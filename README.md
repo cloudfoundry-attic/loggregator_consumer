@@ -6,6 +6,12 @@ Loggregator consumer is a library that allows an application developer to set up
 a connection to a loggregator server, and begin receiving log messages from it.
 It includes the ability to tail logs as well as get the recent logs.
 
+#DEPRECATED
+This library has been deprecated in favor of [noaa](https://github.com/cloudfoundry/noaa). Use [noaa](https://github.com/cloudfoundry/noaa) to consume logs and metrics from the Loggregator system. 
+
+`loggregator_consumer` talks to the Traffic Controller via the endpoints `/tail`, `/dump`, and `/recent` which will
+also be deprecated in the near future.
+
 #WARNING
 This library does not work with Go 1.3 through 1.3.2, due to a bug in the standard libraries.
 
